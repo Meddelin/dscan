@@ -24,6 +24,7 @@ import type {
 import { writeFile, mkdir } from 'node:fs/promises';
 import { prescanBeaver } from '../prescan/beaver.js';
 import { prescanLocalLibs } from '../prescan/local-lib.js';
+import { gitClone, isGitRepo } from '../ops/git.js';
 import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
 import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
 import type { SignalContext } from '../classify/signals.js';
@@ -250,6 +251,13 @@ async function classifyRepo(input: ClassifyRepoInput) {
     }
   }
 
+  // Barrel aliasing: `export { X } from './X'` in an index.ts means a
+  // consumer that imports X from './kit' resolves to the barrel's path,
+  // not X's definition file. Copy the profile entry under the barrel's
+  // absolute path so Pass-B lookups succeed regardless of which file
+  // the import resolves into.
+  aliasBarrelProfiles(input.parsed, input.resolver, profiles);
+
   // Pass-A: collect pre-classified + pending usages.
   const finalizedUsages: UsageRecord[] = [];
   const pending: PendingUsage[] = [];
@@ -322,6 +330,41 @@ async function classifyRepo(input: ClassifyRepoInput) {
   };
 }
 
+function aliasBarrelProfiles(
+  parsed: ParsedFile[],
+  resolver: TsResolver,
+  profiles: Map<string, ComponentProfile>,
+): void {
+  for (const file of parsed) {
+    for (const node of file.ast.body) {
+      if (node.type !== 'ExportNamedDeclaration' || !node.source) continue;
+      const resolved = resolver.resolve(node.source.value, file.file.absPath);
+      if (resolved.kind !== 'in-repo') continue;
+      for (const spec of node.specifiers) {
+        if (spec.type !== 'ExportSpecifier') continue;
+        const localSymbol =
+          spec.local.type === 'Identifier' ? spec.local.name : null;
+        const exportedSymbol =
+          spec.exported.type === 'Identifier' ? spec.exported.name : null;
+        if (!localSymbol || !exportedSymbol) continue;
+        const sourceKey = profileKey({
+          absPath: resolved.absPath,
+          componentName: localSymbol,
+        });
+        const profile = profiles.get(sourceKey);
+        if (!profile) continue;
+        const aliasKey = profileKey({
+          absPath: file.file.absPath,
+          componentName: exportedSymbol,
+        });
+        if (!profiles.has(aliasKey)) {
+          profiles.set(aliasKey, profile);
+        }
+      }
+    }
+  }
+}
+
 function applyRoutes(
   usages: UsageRecord[],
   byFile: Map<string, { kind: 'bound'; path: string } | { kind: 'shared'; paths: string[] } | { kind: 'unmapped' }>,
@@ -381,7 +424,16 @@ async function resolveRepoRoot(
       ? repo.localPath
       : resolve(configDir, repo.localPath);
   }
-  throw new ConfigError(
-    `Repository ${repoIdFor(repo)} has no localPath and MVP does not yet clone consumer repos (lands in M6). Provide localPath in repositories.json.`,
-  );
+  // Otherwise clone into `.cache/repos/<repoId>` (§8.1).
+  const repoId = repoIdFor(repo);
+  const cacheDir = resolve(configDir, '.cache/repos', repoId);
+  if (await isGitRepo(cacheDir)) {
+    return cacheDir;
+  }
+  // Fail-fast per §8.3: no retry on clone failure.
+  await gitClone(repo.gitUrl, cacheDir, {
+    depth: 1,
+    singleBranch: true,
+  });
+  return cacheDir;
 }

@@ -314,8 +314,36 @@ function checkInvariants(
   let beaverUsages = 0;
   let shadowUsages = 0;
 
+  const validBuckets = new Set(['adoption', 'shadow', 'neither']);
+  const validSources = new Set([
+    'direct-beaver',
+    'beaver-backed-wrapper',
+    'beaver-composition',
+    'wraps-with-customization',
+    'parallel-local-ui',
+    'utility-heuristic',
+    'unresolved-dynamic',
+  ]);
+
   for (const u of usages) {
     checked++;
+
+    // §10.1 #1 mutual exclusivity: exactly one valid bucket per usage.
+    if (!validBuckets.has(u.bucket)) {
+      bump(
+        'bucket-mutual-exclusivity',
+        `usage has invalid/missing bucket "${u.bucket}" (§10.1 #1)`,
+      );
+    }
+
+    // §10.1 #2 no orphan classification: source must be a known code.
+    if (!validSources.has(u.classificationSource)) {
+      bump(
+        'classification-source-enum',
+        `usage has unknown classificationSource "${u.classificationSource}" (§10.1 #2)`,
+      );
+    }
+
     if (u.bucket === 'shadow' && u.shadowLevel === undefined) {
       bump(
         'shadow-level-consistency',

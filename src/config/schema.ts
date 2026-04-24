@@ -90,6 +90,31 @@ export const PerRepoConfigSchema = z.object({
 
 export type PerRepoConfig = z.infer<typeof PerRepoConfigSchema>;
 
+/**
+ * Stable Warning shape persisted in warnings.json (§8.3). Every new warning
+ * code must register here AND in docs/warnings.md. Unknown codes are not
+ * rejected at read time — consumers are forward-compatible — but producers
+ * should use one of these values.
+ */
+export const WARNING_CODES = [
+  'file-read-failed',
+  'parse-failed',
+  'local-lib-prescan-failed',
+  'unresolved-dynamic-rate-exceeded',
+  'route-resolution-warning',
+  'repo-clone-failed',
+  'stage7-disabled',
+] as const;
+
+export const WarningSchema = z.object({
+  repoId: z.string().optional(),
+  filePath: z.string().optional(),
+  code: z.string(),
+  message: z.string(),
+});
+
+export type WarningFromSchema = z.infer<typeof WarningSchema>;
+
 export const DEFAULT_EXCLUDES = [
   '**/node_modules/**',
   '**/dist/**',

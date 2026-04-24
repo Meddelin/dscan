@@ -17,7 +17,8 @@ program
   .command('run')
   .description('Run full pipeline: scan → dataset.jsonl + aggregates.json + report.html')
   .requiredOption('-c, --config <path>', 'path to global config (.ts/.js/.json)')
-  .action(async (opts: { config: string }) => {
+  .option('--no-fail-on-invariant', 'do not exit 3 when domain invariants fail (§10.1)')
+  .action(async (opts: { config: string; failOnInvariant: boolean }) => {
     try {
       const result = await runScan({ configPath: opts.config });
       process.stdout.write(
@@ -28,6 +29,21 @@ program
       process.stdout.write(`dataset:    ${result.datasetPath}\n`);
       process.stdout.write(`aggregates: ${result.aggregatesPath}\n`);
       if (result.reportPath) process.stdout.write(`report:     ${result.reportPath}\n`);
+
+      // Read aggregates and enforce invariants unless the user opted out.
+      if (opts.failOnInvariant) {
+        const text = await readFile(result.aggregatesPath, 'utf-8');
+        const agg = JSON.parse(text) as Aggregates;
+        if (agg.invariants.failed > 0) {
+          process.stderr.write(
+            `Invariant violations (${agg.invariants.failed}):\n`,
+          );
+          for (const v of agg.invariants.violations) {
+            process.stderr.write(`  ${v.code} × ${v.count} — ${v.message}\n`);
+          }
+          process.exit(3);
+        }
+      }
     } catch (err) {
       handleFatal(err);
     }

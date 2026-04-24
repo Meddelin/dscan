@@ -10,6 +10,7 @@ import type {
   UsageRecord,
 } from '../types/dataset.js';
 import { SCHEMA_VERSION } from '../types/dataset.js';
+import { basename } from 'node:path';
 
 export interface ClassifyPassInput {
   pending: PendingUsage[];
@@ -43,18 +44,21 @@ export function classifyPass(input: ClassifyPassInput): ClassifyPassOutput {
     const profile = input.profiles.get(key);
 
     let result: ReturnType<typeof classifyLocal>;
+    let synthetic: ComponentProfile | null = null;
     if (profile) {
       result = classifyLocal(profile, input.signalContext);
     } else if (pending.localLibKind === 'fully-custom') {
       // Fully-custom local-library whose source isn't visible (e.g. installed
-      // as an npm dep). Lands in M3 once local-lib prescan parses those
-      // sources; until then, treat as shadow/possible per §3.3 (parallel UI).
+      // as an npm dep). We still emit a ShadowComponentRecord so invariant #5
+      // (dataset completeness) holds — the record carries empty signature
+      // fields and a note in signals that it came from an external source.
       result = {
         bucket: 'shadow',
         classificationSource: 'parallel-local-ui',
         shadowLevel: 'possible',
         signals: [],
       };
+      synthetic = buildSyntheticProfile(pending);
     } else {
       // Component we can't profile (file failed to parse, or unresolved
       // relative import). Best-effort `neither` to avoid over-reporting.
@@ -88,18 +92,45 @@ export function classifyPass(input: ClassifyPassInput): ClassifyPassOutput {
     }
     usages.push(record);
 
-    if (result.bucket === 'shadow' && profile) {
+    if (result.bucket === 'shadow') {
       const existing = shadowByKey.get(key);
       if (!existing) {
-        shadowByKey.set(
-          key,
-          buildShadowRecord(profile, result.shadowLevel ?? 'possible', result.signals),
-        );
+        const p = profile ?? synthetic;
+        if (p) {
+          shadowByKey.set(
+            key,
+            buildShadowRecord(p, result.shadowLevel ?? 'possible', result.signals),
+          );
+        }
+      } else if (synthetic) {
+        existing.usageCount++;
       }
     }
   }
 
   return { usages, shadowRecords: [...shadowByKey.values()] };
+}
+
+function buildSyntheticProfile(pending: PendingUsage): ComponentProfile {
+  return {
+    repoId: pending.partial.repoId,
+    filePath: pending.partial.filePath,
+    absPath: pending.importerAbsPath,
+    componentName: pending.componentName,
+    jsxElementCount: 0,
+    htmlTags: [],
+    propNames: [],
+    usesStyled: false,
+    beaverImports: [],
+    localImports: [],
+    passesClassNameToBeaver: false,
+    wrapsBeaverWithStyled: false,
+    hasBeaverImport: false,
+    filesUsedIn: 1,
+    usageCount: 1,
+    codeSnippet: `// source unavailable (external dep: ${basename(pending.partial.filePath)})`,
+    codeSnippetTruncated: false,
+  };
 }
 
 function buildShadowRecord(
