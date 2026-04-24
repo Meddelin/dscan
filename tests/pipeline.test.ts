@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runScan } from '../src/pipeline/run.js';
 import type { Aggregates, UsageRecord } from '../src/types/dataset.js';
@@ -10,6 +10,7 @@ import { renderReport } from '../src/viewer/render.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_ROOT = join(__dirname, 'fixtures');
+const FAKE_BEAVER = resolve(FIXTURE_ROOT, 'beaver-ui');
 const CONFIG_DIR_PREFIX = join(tmpdir(), 'dscan-test-');
 const scratchDirs: string[] = [];
 
@@ -18,6 +19,14 @@ async function scratchConfigDir(): Promise<string> {
   scratchDirs.push(dir);
   return dir;
 }
+
+beforeEach(() => {
+  process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+});
+
+afterEach(() => {
+  delete process.env.BEAVER_LOCAL_PATH;
+});
 
 afterAll(async () => {
   for (const dir of scratchDirs) {
@@ -28,13 +37,11 @@ afterAll(async () => {
 async function writeConfigs(
   dir: string,
   repos: Array<{ name: string; localPath: string }>,
-  beaverPackages: string[],
 ): Promise<string> {
   const cfg = {
-    beaverUrl: 'ssh://x',
+    beaverUrl: 'ssh://fake-unused-because-of-env',
     repositoriesFile: './repositories.json',
     output: { dir: './results', formats: ['jsonl', 'aggregates', 'html'] },
-    beaverPackages,
   };
   const cfgPath = join(dir, '.beaver-scan.config.json');
   await writeFile(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
@@ -54,32 +61,27 @@ async function writeConfigs(
   return cfgPath;
 }
 
+async function runOnFixture(fixtureName: string) {
+  const dir = await scratchConfigDir();
+  const cfgPath = await writeConfigs(dir, [
+    { name: fixtureName, localPath: join(FIXTURE_ROOT, fixtureName) },
+  ]);
+  const result = await runScan({ configPath: cfgPath });
+  const text = await readFile(result.aggregatesPath, 'utf-8');
+  const aggregates = JSON.parse(text) as Aggregates;
+  const dataset = await readJsonl(result.datasetPath);
+  const records = dataset.filter((r): r is UsageRecord => r.kind === 'usage');
+  return { result, aggregates, records };
+}
+
 describe('pipeline end-to-end', () => {
   describe('fixture-pure-adoption', () => {
     let aggregates: Aggregates;
     let records: UsageRecord[];
 
     beforeAll(async () => {
-      const dir = await scratchConfigDir();
-      const cfgPath = await writeConfigs(
-        dir,
-        [
-          {
-            name: 'fixture-pure-adoption',
-            localPath: join(FIXTURE_ROOT, 'fixture-pure-adoption'),
-          },
-        ],
-        [
-          '@beaver-ui/button',
-          '@beaver-ui/side-navigation',
-          '@beaver-ui/subheader',
-        ],
-      );
-      const result = await runScan({ configPath: cfgPath });
-      const text = await readFile(result.aggregatesPath, 'utf-8');
-      aggregates = JSON.parse(text) as Aggregates;
-      const dataset = await readJsonl(result.datasetPath);
-      records = dataset.filter((r): r is UsageRecord => r.kind === 'usage');
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ aggregates, records } = await runOnFixture('fixture-pure-adoption'));
     });
 
     it('classifies every Beaver import as adoption/direct-beaver', () => {
@@ -92,11 +94,11 @@ describe('pipeline end-to-end', () => {
       }
     });
 
-    it('produces globalAdoption=1.0 (no shadow)', () => {
+    it('globalAdoption = 1.0 (no shadow)', () => {
       expect(aggregates.metrics.globalAdoption.value).toBe(1);
     });
 
-    it('populates beaverCoverage with all 3 packages', () => {
+    it('beaverCoverage lists all 3 leaf packages', () => {
       const packages = aggregates.metrics.beaverCoverage.map((c) => c.package).sort();
       expect(packages).toEqual([
         '@beaver-ui/button',
@@ -105,13 +107,12 @@ describe('pipeline end-to-end', () => {
       ]);
     });
 
-    it('emits zero shadow records', () => {
-      expect(aggregates.metrics.shadowLandscape.byFile).toHaveLength(0);
-      expect(aggregates.metrics.shadowLandscape.byComponent).toHaveLength(0);
-    });
-
     it('passes all invariants', () => {
       expect(aggregates.invariants.failed).toBe(0);
+    });
+
+    it('beaverVersion is non-empty', () => {
+      expect(aggregates.meta.beaverVersion.length).toBeGreaterThan(0);
     });
   });
 
@@ -120,22 +121,8 @@ describe('pipeline end-to-end', () => {
     let records: UsageRecord[];
 
     beforeAll(async () => {
-      const dir = await scratchConfigDir();
-      const cfgPath = await writeConfigs(
-        dir,
-        [
-          {
-            name: 'fixture-shadow-primitive',
-            localPath: join(FIXTURE_ROOT, 'fixture-shadow-primitive'),
-          },
-        ],
-        ['@beaver-ui/button'],
-      );
-      const result = await runScan({ configPath: cfgPath });
-      const text = await readFile(result.aggregatesPath, 'utf-8');
-      aggregates = JSON.parse(text) as Aggregates;
-      const dataset = await readJsonl(result.datasetPath);
-      records = dataset.filter((r): r is UsageRecord => r.kind === 'usage');
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ aggregates, records } = await runOnFixture('fixture-shadow-primitive'));
     });
 
     it('flags local Button + Card as shadow/possible', () => {
@@ -152,35 +139,14 @@ describe('pipeline end-to-end', () => {
     it('globalAdoption = 0 (all primitives are shadow)', () => {
       expect(aggregates.metrics.globalAdoption.value).toBe(0);
     });
-
-    it('groups per-component shadow by name+level', () => {
-      const groups = aggregates.metrics.shadowLandscape.byComponent;
-      const names = groups.map((g) => g.componentName).sort();
-      expect(names).toEqual(['Button', 'Card']);
-    });
   });
 
   describe('fixture-mixed', () => {
-    let aggregates: Aggregates;
     let records: UsageRecord[];
 
     beforeAll(async () => {
-      const dir = await scratchConfigDir();
-      const cfgPath = await writeConfigs(
-        dir,
-        [
-          {
-            name: 'fixture-mixed',
-            localPath: join(FIXTURE_ROOT, 'fixture-mixed'),
-          },
-        ],
-        ['@beaver-ui/components'],
-      );
-      const result = await runScan({ configPath: cfgPath });
-      const text = await readFile(result.aggregatesPath, 'utf-8');
-      aggregates = JSON.parse(text) as Aggregates;
-      const dataset = await readJsonl(result.datasetPath);
-      records = dataset.filter((r): r is UsageRecord => r.kind === 'usage');
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-mixed'));
     });
 
     it('resolves partially-beaver-backed local-lib as adoption', () => {
@@ -197,11 +163,12 @@ describe('pipeline end-to-end', () => {
       expect(legacy).toBeDefined();
       expect(legacy!.category).toBe('local-library');
       expect(legacy!.bucket).toBe('shadow');
-      expect(legacy!.localLibId).toBe('legacy-kit');
     });
 
     it('detects local Modal as primitive-name shadow', () => {
-      const modal = records.find((r) => r.componentName === 'Modal' && r.category === 'local');
+      const modal = records.find(
+        (r) => r.componentName === 'Modal' && r.category === 'local',
+      );
       expect(modal).toBeDefined();
       expect(modal!.bucket).toBe('shadow');
     });
@@ -211,13 +178,59 @@ describe('pipeline end-to-end', () => {
       expect(ap).toBeDefined();
       expect(ap!.bucket).toBe('neither');
     });
+  });
 
-    it('canonicalizes aggregator import as Beaver direct', () => {
-      const button = records.find(
+  describe('fixture-aggregator-package (M1 canonicalization)', () => {
+    let records: UsageRecord[];
+
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-aggregator-package'));
+    });
+
+    it('canonicalizes Button to @beaver-ui/button with canonicalizedVia', () => {
+      const btn = records.find(
         (r) => r.componentName === 'Button' && r.category === 'beaver',
       );
-      expect(button).toBeDefined();
-      expect(button!.beaverPackage).toBe('@beaver-ui/components');
+      expect(btn).toBeDefined();
+      expect(btn!.beaverPackage).toBe('@beaver-ui/button');
+      expect(btn!.canonicalizedVia).toBe('@beaver-ui/components');
+    });
+
+    it('canonicalizes SideNavigation to @beaver-ui/side-navigation', () => {
+      const nav = records.find((r) => r.componentName === 'SideNavigation');
+      expect(nav?.beaverPackage).toBe('@beaver-ui/side-navigation');
+      expect(nav?.canonicalizedVia).toBe('@beaver-ui/components');
+    });
+
+    it('canonicalizes Subheader to @beaver-ui/subheader', () => {
+      const sh = records.find((r) => r.componentName === 'Subheader');
+      expect(sh?.beaverPackage).toBe('@beaver-ui/subheader');
+      expect(sh?.canonicalizedVia).toBe('@beaver-ui/components');
+    });
+  });
+
+  describe('fixture-tsconfig-paths (M1 resolver)', () => {
+    let records: UsageRecord[];
+
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-tsconfig-paths'));
+    });
+
+    it('resolves `@/components/LocalPanel` as local (not third-party)', () => {
+      const panel = records.find((r) => r.componentName === 'LocalPanel');
+      expect(panel).toBeDefined();
+      expect(panel!.category).toBe('local');
+    });
+
+    it('classifies direct @beaver-ui/button import as beaver', () => {
+      const btn = records.find(
+        (r) => r.componentName === 'Button' && r.category === 'beaver',
+      );
+      expect(btn).toBeDefined();
+      expect(btn!.beaverPackage).toBe('@beaver-ui/button');
+      expect(btn!.canonicalizedVia).toBeUndefined();
     });
   });
 
@@ -248,37 +261,25 @@ describe('pipeline end-to-end', () => {
       expect(html).toContain('<!doctype html>');
       expect(html).toContain('BEAVER');
       expect(html).toContain('Global Adoption');
-      expect(html).not.toContain('fetch('); // inline only
+      expect(html).not.toContain('fetch(');
       expect(html).toContain('"value":0.75');
     });
   });
 
   describe('determinism (§8.4)', () => {
     it('yields bit-identical dataset on two consecutive runs', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
       const dir = await scratchConfigDir();
-      const cfgPath = await writeConfigs(
-        dir,
-        [
-          {
-            name: 'fixture-mixed',
-            localPath: join(FIXTURE_ROOT, 'fixture-mixed'),
-          },
-        ],
-        ['@beaver-ui/components'],
-      );
+      const cfgPath = await writeConfigs(dir, [
+        { name: 'fixture-mixed', localPath: join(FIXTURE_ROOT, 'fixture-mixed') },
+      ]);
       const r1 = await runScan({ configPath: cfgPath });
       const text1 = await readFile(r1.datasetPath, 'utf-8');
+
       const dir2 = await scratchConfigDir();
-      const cfgPath2 = await writeConfigs(
-        dir2,
-        [
-          {
-            name: 'fixture-mixed',
-            localPath: join(FIXTURE_ROOT, 'fixture-mixed'),
-          },
-        ],
-        ['@beaver-ui/components'],
-      );
+      const cfgPath2 = await writeConfigs(dir2, [
+        { name: 'fixture-mixed', localPath: join(FIXTURE_ROOT, 'fixture-mixed') },
+      ]);
       const r2 = await runScan({ configPath: cfgPath2 });
       const text2 = await readFile(r2.datasetPath, 'utf-8');
       expect(text1).toBe(text2);

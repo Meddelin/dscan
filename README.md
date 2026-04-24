@@ -6,30 +6,32 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 
 ## Статус
 
-**MVP, vertical slice.** End-to-end pipeline через упрощённую классификацию + HTML-viewer.
-Stages реализованы частично:
+**MVP, M1 landed.** Beaver prescan + real TS module resolution работают. См. [implementation/plan.md](./implementation/plan.md).
 
 | Stage | Статус |
 |-------|--------|
 | 1. Discovery | ✅ |
 | 2. Parse | ✅ |
-| 3. Resolve | заглушка (использует import source как есть) |
-| 4. Categorize | ✅ (упрощённо, `beaverPackages` из конфига вместо prescan) |
-| 5. Prescan-Join | ⏳ |
-| 6. Classify | заглушка (структурная категория → bucket) |
-| 7. Route-Resolve | заглушка (все usage → `unsupported`) |
-| 8. Aggregate | ✅ (метрики A, D, meta) |
-| HTML Viewer | ✅ (hero + per-repo + Beaver coverage) |
+| 3. Resolve | ✅ (TS compiler API, tsconfig paths) |
+| 4. Categorize | ✅ |
+| 5a. Beaver prescan | ✅ (git clone + re-export map depth=5) |
+| 5b. Local-lib prescan | ⏳ M3 |
+| 6. Classify Этап A | ✅ |
+| 6. Classify Этап B | заглушка (primitive-name → shadow/possible), M2 |
+| 7. Route-Resolve | заглушка (все usage → `unsupported`), M4 |
+| 8. Aggregate | метрики A/B/C/D + 4 из 9 инвариантов |
+| HTML Viewer | hero + B/C/D |
 
 ## Быстрый старт
 
 ```bash
 npm install
-npm run build
+npm run typecheck
 npm test
 
-# Прогон на fixture-репо:
-npm run dev -- run --config ./example/.beaver-scan.config.ts
+# Прогон на fixture-репо. BEAVER_LOCAL_PATH обходит git clone для локальных прогонов.
+BEAVER_LOCAL_PATH=./tests/fixtures/beaver-ui \
+  npm run dev -- run --config ./example/.beaver-scan.config.ts
 ```
 
 Артефакты пишутся в `./results/`:

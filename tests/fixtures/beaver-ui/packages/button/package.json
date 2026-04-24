@@ -1,0 +1,5 @@
+{
+  "name": "@beaver-ui/button",
+  "version": "0.238.5",
+  "main": "src/index.ts"
+}

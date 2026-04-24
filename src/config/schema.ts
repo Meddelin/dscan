@@ -41,10 +41,6 @@ export const GlobalConfigSchema = z.object({
     .optional(),
 
   primitiveNames: z.array(z.string()).optional(),
-
-  // MVP-only: since Beaver prescan is not implemented yet, beaver packages must
-  // be enumerated in config explicitly. Will be replaced by prescan output (§4.5).
-  beaverPackages: z.array(z.string()).default([]),
 });
 
 export type GlobalConfig = z.infer<typeof GlobalConfigSchema>;

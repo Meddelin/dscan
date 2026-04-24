@@ -1,7 +1,10 @@
 import picomatch from 'picomatch';
+import { resolve as resolvePath } from 'node:path';
 import type { TSESTree } from '@typescript-eslint/typescript-estree';
 import type { ParsedFile } from './parse.js';
-import type { GlobalConfig, PerRepoConfig } from '../config/schema.js';
+import type { PerRepoConfig } from '../config/schema.js';
+import type { BeaverRegistry } from '../types/prescan.js';
+import type { TsResolver } from '../resolve/ts-resolver.js';
 import type {
   Bucket,
   ClassificationSource,
@@ -33,7 +36,17 @@ interface ImportBinding {
 interface LocalLibraryResolver {
   libId: string;
   kind: 'partially-beaver-backed' | 'fully-custom';
-  match: (source: string) => boolean;
+  matchSource: (source: string) => boolean;
+  pathPrefix: string; // lowercased, forward-slashed, trailing '/'
+}
+
+export interface CategorizeContext {
+  parsed: ParsedFile;
+  perRepo: PerRepoConfig;
+  repoRoot: string;
+  resolver: TsResolver;
+  beaverRegistry: BeaverRegistry;
+  globalPrimitiveNames?: string[];
 }
 
 export interface CategorizeOutput {
@@ -43,46 +56,35 @@ export interface CategorizeOutput {
 }
 
 /**
- * Combines Stages 3 (Resolve — MVP-simplified to raw import-source),
- * 4 (Categorize), and 6 (Classify — structural-only) from §4.4/§4.6 Этап A.
- *
- * MVP trade-offs:
- * - No TS module resolution — import source string used as-is.
- * - No Beaver prescan — `beaverPackages` comes from global config.
- * - `local` components classified as shadow/possible iff name matches the
- *   primitive whitelist (stand-in for Stage 6 Этап B).
- * - Routes are filled as `{ kind: 'unsupported' }` (Stage 7 not implemented).
+ * Runs Stages 3 (Resolve), 4 (Categorize), and 6 Этап A from the PRD on a
+ * single parsed file (§4.4 / §4.6). Stage 6 Этап B is stubbed as the
+ * primitive-name-only heuristic from M0 — real Stage 6 signals land in M2.
  */
-export function categorizeFile(
-  parsed: ParsedFile,
-  global: GlobalConfig,
-  perRepo: PerRepoConfig,
-): CategorizeOutput {
-  const imports = collectImports(parsed.ast);
+export function categorizeFile(ctx: CategorizeContext): CategorizeOutput {
+  const imports = collectImports(ctx.parsed.ast);
   const primitiveNames = new Set<string>(
-    perRepo.primitiveNamesOverride ??
-      global.primitiveNames ??
+    ctx.perRepo.primitiveNamesOverride ??
+      ctx.globalPrimitiveNames ??
       [...DEFAULT_PRIMITIVE_NAMES],
   );
-  const beaverPackages = new Set(global.beaverPackages);
-  const localLibs = buildLocalLibResolvers(perRepo);
+  const localLibs = buildLocalLibResolvers(ctx.perRepo, ctx.repoRoot);
 
   const usages: UsageRecord[] = [];
   const unresolved: UnresolvedRecord[] = [];
   const warnings: Warning[] = [];
 
-  walkJsx(parsed.ast, (element) => {
+  walkJsx(ctx.parsed.ast, (element) => {
     const tag = element.name;
     const componentName = readJsxTagName(tag);
     if (componentName === null) {
       unresolved.push({
         schemaVersion: SCHEMA_VERSION,
         kind: 'unresolved-dynamic',
-        repoId: parsed.file.repoId,
-        filePath: parsed.file.relPath,
+        repoId: ctx.parsed.file.repoId,
+        filePath: ctx.parsed.file.relPath,
         line: element.loc.start.line,
         reason: 'member-expression-not-supported',
-        context: parsed.source
+        context: ctx.parsed.source
           .slice(element.range[0], element.range[1])
           .slice(0, 80),
       });
@@ -92,7 +94,7 @@ export function categorizeFile(
     if (isLowercaseTag(componentName)) {
       usages.push(
         buildUsage({
-          parsed,
+          parsed: ctx.parsed,
           element,
           componentName,
           category: 'html-native',
@@ -105,34 +107,20 @@ export function categorizeFile(
     }
 
     const binding = imports.get(componentName) ?? null;
-    const {
-      category,
-      bucket,
-      classificationSource,
-      shadowLevel,
-      beaverPackage,
-      localLibId,
-      beaverBackedByLib,
-    } = classifyImport({
+    const classified = classifyImport({
       componentName,
       binding,
-      beaverPackages,
+      ctx,
       localLibs,
       primitiveNames,
     });
 
     usages.push(
       buildUsage({
-        parsed,
+        parsed: ctx.parsed,
         element,
         componentName,
-        category,
-        bucket,
-        classificationSource,
-        shadowLevel,
-        beaverPackage,
-        localLibId,
-        beaverBackedByLib,
+        ...classified,
         resolution: 'static',
       }),
     );
@@ -141,12 +129,21 @@ export function categorizeFile(
   return { usages, unresolved, warnings };
 }
 
-function buildLocalLibResolvers(perRepo: PerRepoConfig): LocalLibraryResolver[] {
-  return perRepo.localLibraries.map((lib) => ({
-    libId: lib.libId,
-    kind: lib.kind,
-    match: picomatch(lib.matchPattern),
-  }));
+function buildLocalLibResolvers(
+  perRepo: PerRepoConfig,
+  repoRoot: string,
+): LocalLibraryResolver[] {
+  return perRepo.localLibraries.map((lib) => {
+    const matchSource = picomatch(lib.matchPattern);
+    const abs = resolvePath(repoRoot, lib.source.path);
+    const normalized = abs.replace(/\\/g, '/').toLowerCase();
+    return {
+      libId: lib.libId,
+      kind: lib.kind,
+      matchSource,
+      pathPrefix: normalized.endsWith('/') ? normalized : normalized + '/',
+    };
+  });
 }
 
 function collectImports(ast: TSESTree.Program): Map<string, ImportBinding> {
@@ -156,9 +153,17 @@ function collectImports(ast: TSESTree.Program): Map<string, ImportBinding> {
     const source = node.source.value;
     for (const spec of node.specifiers) {
       if (spec.type === 'ImportDefaultSpecifier') {
-        out.set(spec.local.name, { source, importedName: null, localName: spec.local.name });
+        out.set(spec.local.name, {
+          source,
+          importedName: null,
+          localName: spec.local.name,
+        });
       } else if (spec.type === 'ImportNamespaceSpecifier') {
-        out.set(spec.local.name, { source, importedName: '*', localName: spec.local.name });
+        out.set(spec.local.name, {
+          source,
+          importedName: '*',
+          localName: spec.local.name,
+        });
       } else if (spec.type === 'ImportSpecifier') {
         const imported =
           spec.imported.type === 'Identifier'
@@ -207,8 +212,6 @@ function pushChildren(node: TSESTree.Node, stack: TSESTree.Node[]): void {
 
 function readJsxTagName(name: TSESTree.JSXTagNameExpression): string | null {
   if (name.type === 'JSXIdentifier') return name.name;
-  // JSXMemberExpression (e.g. <Form.Item/>) — MVP: unresolved (§5.5)
-  // JSXNamespacedName (e.g. <svg:path>) — treat like lowercase tag name
   if (name.type === 'JSXNamespacedName') {
     return `${name.namespace.name}:${name.name.name}`;
   }
@@ -226,6 +229,7 @@ interface ClassifyResult {
   classificationSource: ClassificationSource;
   shadowLevel?: ShadowLevel;
   beaverPackage?: string;
+  canonicalizedVia?: string;
   localLibId?: string;
   beaverBackedByLib?: boolean;
 }
@@ -233,59 +237,86 @@ interface ClassifyResult {
 function classifyImport(args: {
   componentName: string;
   binding: ImportBinding | null;
-  beaverPackages: Set<string>;
+  ctx: CategorizeContext;
   localLibs: LocalLibraryResolver[];
   primitiveNames: Set<string>;
 }): ClassifyResult {
-  const { componentName, binding, beaverPackages, localLibs, primitiveNames } = args;
+  const { componentName, binding, ctx, localLibs, primitiveNames } = args;
 
   if (!binding) {
-    // Capitalized JSX tag with no matching import — likely defined in-file or
-    // referenced via global scope. Treat as `local` + classify below.
+    // Capitalized tag without a matching ImportDeclaration. Either defined
+    // in-file (locally) or referenced via closure from outer scope. Treated
+    // as `local` for Stage 6 Этап B purposes.
     return classifyLocal(componentName, primitiveNames);
   }
 
-  const source = binding.source;
+  const resolved = ctx.resolver.resolve(
+    binding.source,
+    ctx.parsed.file.absPath,
+  );
 
-  // Priority 1: Beaver package (exact match or aggregator) — §4.4.2
-  if (beaverPackages.has(source)) {
+  // Priority 1: Beaver package, canonicalized through the re-export map.
+  if (resolved.kind === 'external' && ctx.beaverRegistry.packages.has(resolved.packageName)) {
+    const pkgName = resolved.packageName;
+    const symbol = binding.importedName ?? 'default';
+    const reExport = ctx.beaverRegistry.reExports.get(pkgName)?.get(symbol);
+    if (reExport && reExport.sourcePackage !== pkgName) {
+      return {
+        category: 'beaver',
+        bucket: 'adoption',
+        classificationSource: 'direct-beaver',
+        beaverPackage: reExport.sourcePackage,
+        canonicalizedVia: pkgName,
+      };
+    }
     return {
       category: 'beaver',
       bucket: 'adoption',
       classificationSource: 'direct-beaver',
-      beaverPackage: source,
+      beaverPackage: pkgName,
     };
   }
 
-  // Priority 2: local-library (per-repo config)
-  for (const lib of localLibs) {
-    if (lib.match(source)) {
-      if (lib.kind === 'partially-beaver-backed') {
-        return {
-          category: 'local-library',
-          bucket: 'adoption',
-          classificationSource: 'beaver-backed-wrapper',
-          localLibId: lib.libId,
-          beaverBackedByLib: true,
-        };
-      }
+  // Priority 2: local-library (per-repo config). Match by either import source
+  // (for package-style locals like @team/kit) or resolved path (for directory
+  // locals like src/shared/ui-kit/**).
+  const libHit = matchLocalLib(binding.source, resolved, localLibs);
+  if (libHit) {
+    if (libHit.kind === 'partially-beaver-backed') {
       return {
         category: 'local-library',
-        bucket: 'shadow',
-        classificationSource: 'parallel-local-ui',
-        shadowLevel: 'possible',
-        localLibId: lib.libId,
-        beaverBackedByLib: false,
+        bucket: 'adoption',
+        classificationSource: 'beaver-backed-wrapper',
+        localLibId: libHit.libId,
+        beaverBackedByLib: true,
       };
     }
+    return {
+      category: 'local-library',
+      bucket: 'shadow',
+      classificationSource: 'parallel-local-ui',
+      shadowLevel: 'possible',
+      localLibId: libHit.libId,
+      beaverBackedByLib: false,
+    };
   }
 
-  // Priority 3: relative → local
-  if (source.startsWith('./') || source.startsWith('../') || source.startsWith('/')) {
+  // Priority 3: relative / alias resolved inside repo → local.
+  if (resolved.kind === 'in-repo') {
     return classifyLocal(componentName, primitiveNames);
   }
 
-  // Priority 4: third-party (npm package, not Beaver)
+  // Priority 4: fallback by source-shape when TS couldn't resolve.
+  if (
+    resolved.kind === 'unresolved' &&
+    (binding.source.startsWith('./') ||
+      binding.source.startsWith('../') ||
+      binding.source.startsWith('/'))
+  ) {
+    return classifyLocal(componentName, primitiveNames);
+  }
+
+  // Priority 5: third-party (npm package, not Beaver).
   return {
     category: 'third-party',
     bucket: 'neither',
@@ -293,13 +324,26 @@ function classifyImport(args: {
   };
 }
 
+function matchLocalLib(
+  source: string,
+  resolved: ReturnType<TsResolver['resolve']>,
+  localLibs: LocalLibraryResolver[],
+): LocalLibraryResolver | null {
+  for (const lib of localLibs) {
+    if (lib.matchSource(source)) return lib;
+    if (resolved.kind === 'in-repo') {
+      const normalized = resolved.absPath.replace(/\\/g, '/').toLowerCase();
+      if (normalized.startsWith(lib.pathPrefix)) return lib;
+    }
+  }
+  return null;
+}
+
 function classifyLocal(
   componentName: string,
   primitiveNames: Set<string>,
 ): ClassifyResult {
-  // MVP stand-in for Stage 6 Этап B (§4.6): a locally-defined component with
-  // a primitive-like name counts as possible shadow. Real Stage 6 will also
-  // apply substantial-markup, reusable-local, and beaver-import checks.
+  // Stage 6 Этап B stub (§4.6) — real signals + levels land in M2.
   if (primitiveNames.has(componentName)) {
     return {
       category: 'local',
@@ -324,6 +368,7 @@ function buildUsage(args: {
   classificationSource: ClassificationSource;
   shadowLevel?: ShadowLevel | undefined;
   beaverPackage?: string | undefined;
+  canonicalizedVia?: string | undefined;
   localLibId?: string | undefined;
   beaverBackedByLib?: boolean | undefined;
   resolution: Resolution;
@@ -337,6 +382,7 @@ function buildUsage(args: {
     classificationSource,
     shadowLevel,
     beaverPackage,
+    canonicalizedVia,
     localLibId,
     beaverBackedByLib,
     resolution,
@@ -357,7 +403,9 @@ function buildUsage(args: {
   };
   if (shadowLevel !== undefined) record.shadowLevel = shadowLevel;
   if (beaverPackage !== undefined) record.beaverPackage = beaverPackage;
+  if (canonicalizedVia !== undefined) record.canonicalizedVia = canonicalizedVia;
   if (localLibId !== undefined) record.localLibId = localLibId;
   if (beaverBackedByLib !== undefined) record.beaverBackedByLib = beaverBackedByLib;
   return record;
 }
+

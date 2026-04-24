@@ -29,6 +29,7 @@
     "commander": "^12.1.0",
     "fdir": "^6.4.2",
     "picomatch": "^4.0.2",
+    "typescript": "^5.7.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -36,7 +37,6 @@
     "@types/picomatch": "^3.0.1",
     "rimraf": "^6.0.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }
 }

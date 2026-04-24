@@ -18,13 +18,4 @@ export default defineConfig({
     importGraphDepthLimit: 20,
     collapseNestedRoutes: true,
   },
-  // MVP stand-in for Beaver prescan (§4.5). List every package the scanner
-  // should treat as Beaver. Aggregator packages (e.g. @beaver-ui/components)
-  // are matched as-is — canonicalization lands with real prescan.
-  beaverPackages: [
-    '@beaver-ui/button',
-    '@beaver-ui/side-navigation',
-    '@beaver-ui/subheader',
-    '@beaver-ui/components',
-  ],
 });

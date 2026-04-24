@@ -7,7 +7,7 @@ import {
   ConfigError,
 } from '../config/loader.js';
 import type { RepositoryEntry } from '../config/schema.js';
-import { discoverFiles, type DiscoveredFile } from './discovery.js';
+import { discoverFiles } from './discovery.js';
 import { parseFiles } from './parse.js';
 import { categorizeFile } from './categorize.js';
 import { sortRecords, writeJsonl } from '../writer/jsonl.js';
@@ -20,6 +20,8 @@ import type {
   Warning,
 } from '../types/dataset.js';
 import { writeFile, mkdir } from 'node:fs/promises';
+import { prescanBeaver } from '../prescan/beaver.js';
+import { createTsResolver } from '../resolve/ts-resolver.js';
 
 export const SCANNER_VERSION = '0.1.0';
 
@@ -38,12 +40,15 @@ export interface RunResult {
     unresolved: number;
     warnings: number;
     durationMs: number;
+    beaverVersion: string;
   };
 }
 
 /**
  * Full pipeline runner (§6.5 `beaver-scan run`).
- * MVP: Stages 1, 2, 4, 6(partial), 8 + viewer. Stages 3, 5, 7 are stubbed.
+ * Wires Stage 5a (Beaver prescan), Stage 3 (resolve), Stages 1/2/4/6-partial/8
+ * and renders the HTML viewer. Stages 5b (local-lib prescan), 6 Этап B, and 7
+ * remain stubbed — see implementation/plan.md.
  */
 export async function runScan(opts: RunOptions): Promise<RunResult> {
   const started = performance.now();
@@ -55,6 +60,12 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     : resolve(configDir, config.output.dir);
   await mkdir(outputDir, { recursive: true });
 
+  const cacheDir = resolve(configDir, '.cache/beaver-ui');
+  const beaverRegistry = await prescanBeaver({
+    beaverUrl: config.beaverUrl,
+    cacheDir,
+  });
+
   const allRecords: DatasetRecord[] = [];
   const allWarnings: Warning[] = [];
   let filesScanned = 0;
@@ -63,15 +74,8 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     const repoId = repoIdFor(repo);
     const repoRoot = await resolveRepoRoot(repo, configDir);
 
-    let perRepo;
-    try {
-      perRepo = await loadPerRepoConfig(repoRoot);
-    } catch (err) {
-      if (err instanceof ConfigError) {
-        throw err; // fail fast per §8.3
-      }
-      throw err;
-    }
+    const perRepo = await loadPerRepoConfig(repoRoot);
+    const resolver = await createTsResolver(repoRoot, perRepo.tsconfig);
 
     const files = await discoverFiles(repoId, repoRoot, perRepo);
     filesScanned += files.length;
@@ -80,7 +84,16 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     allWarnings.push(...parseWarnings);
 
     for (const parsedFile of parsed) {
-      const { usages, unresolved, warnings } = categorizeFile(parsedFile, config, perRepo);
+      const { usages, unresolved, warnings } = categorizeFile({
+        parsed: parsedFile,
+        perRepo,
+        repoRoot,
+        resolver,
+        beaverRegistry,
+        ...(config.primitiveNames !== undefined
+          ? { globalPrimitiveNames: config.primitiveNames }
+          : {}),
+      });
       allRecords.push(...(usages as UsageRecord[]));
       allRecords.push(...(unresolved as UnresolvedRecord[]));
       allWarnings.push(...warnings);
@@ -105,7 +118,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     scannerVersion: SCANNER_VERSION,
     scannedAt: new Date().toISOString(),
     scanDurationMs: Math.round(performance.now() - started),
-    beaverVersion: 'unprescanned', // Stage 5 stub
+    beaverVersion: beaverRegistry.version,
     reposScanned: repositories.length,
     filesScanned,
   });
@@ -136,6 +149,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
       unresolved,
       warnings: allWarnings.length,
       durationMs: Math.round(performance.now() - started),
+      beaverVersion: beaverRegistry.version,
     },
   };
 }
@@ -152,9 +166,11 @@ async function resolveRepoRoot(
   configDir: string,
 ): Promise<string> {
   if (repo.localPath) {
-    return isAbsolute(repo.localPath) ? repo.localPath : resolve(configDir, repo.localPath);
+    return isAbsolute(repo.localPath)
+      ? repo.localPath
+      : resolve(configDir, repo.localPath);
   }
   throw new ConfigError(
-    `Repository ${repoIdFor(repo)} has no localPath and MVP does not yet clone (Stage 5). Provide localPath in repositories.json or wait for Stage-5 clone support.`,
+    `Repository ${repoIdFor(repo)} has no localPath and MVP does not yet clone consumer repos (lands in M6). Provide localPath in repositories.json.`,
   );
 }

@@ -1,0 +1,6 @@
+{
+  "name": "beaver-ui-monorepo",
+  "version": "0.238.5",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

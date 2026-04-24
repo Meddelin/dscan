@@ -13,5 +13,15 @@
     "name": "fixture-mixed",
     "gitUrl": "ssh://git@localhost/fixture-mixed.git",
     "localPath": "../tests/fixtures/fixture-mixed"
+  },
+  {
+    "name": "fixture-aggregator-package",
+    "gitUrl": "ssh://git@localhost/fixture-aggregator-package.git",
+    "localPath": "../tests/fixtures/fixture-aggregator-package"
+  },
+  {
+    "name": "fixture-tsconfig-paths",
+    "gitUrl": "ssh://git@localhost/fixture-tsconfig-paths.git",
+    "localPath": "../tests/fixtures/fixture-tsconfig-paths"
   }
 ]
