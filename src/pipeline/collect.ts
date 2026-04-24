@@ -3,7 +3,7 @@ import { resolve as resolvePath } from 'node:path';
 import type { TSESTree } from '@typescript-eslint/typescript-estree';
 import type { ParsedFile } from './parse.js';
 import type { PerRepoConfig } from '../config/schema.js';
-import type { BeaverRegistry } from '../types/prescan.js';
+import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
 import type { TsResolver } from '../resolve/ts-resolver.js';
 import type {
   ClassificationSource,
@@ -71,6 +71,7 @@ export interface CollectContext {
   repoRoot: string;
   resolver: TsResolver;
   beaverRegistry: BeaverRegistry;
+  localLibRegistry: LocalLibRegistry;
 }
 
 export interface CollectResult {
@@ -165,11 +166,17 @@ export function collectUsages(ctx: CollectContext): CollectResult {
         return;
       }
 
-      // Priority 2: local-library match.
+      // Priority 2: local-library match — per-component backing from prescan.
       const libHit = matchLocalLib(binding.source, resolved, localLibs);
       if (libHit) {
         const libPartial = { ...partial, category: 'local-library' as const };
-        if (libHit.kind === 'partially-beaver-backed') {
+        const symbol = binding.importedName ?? 'default';
+        const prescanned = ctx.localLibRegistry.byLib.get(libHit.libId)?.get(symbol);
+        const backed =
+          prescanned !== undefined
+            ? prescanned
+            : libHit.kind === 'partially-beaver-backed';
+        if (backed) {
           preClassified.push({
             kind: 'finalized',
             record: finalize(libPartial, {
@@ -183,7 +190,6 @@ export function collectUsages(ctx: CollectContext): CollectResult {
           });
           return;
         }
-        // Fully-custom → flows through Pass-B like a local component.
         preClassified.push({
           kind: 'pending',
           pending: buildPending(ctx, resolved, binding, libPartial, {

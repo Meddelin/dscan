@@ -212,6 +212,26 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('fixture-local-lib-backed (M3 per-component backing)', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-local-lib-backed'));
+    });
+    it('AuthButton (imports Beaver) = adoption/beaver-backed-wrapper', () => {
+      const ab = records.find((r) => r.componentName === 'AuthButton');
+      expect(ab?.category).toBe('local-library');
+      expect(ab?.bucket).toBe('adoption');
+      expect(ab?.classificationSource).toBe('beaver-backed-wrapper');
+      expect(ab?.beaverBackedByLib).toBe(true);
+    });
+    it('BrandLogo (no Beaver imports) flips to shadow despite lib.kind=partially-beaver-backed', () => {
+      const bl = records.find((r) => r.componentName === 'BrandLogo');
+      expect(bl?.category).toBe('local-library');
+      expect(bl?.bucket).toBe('shadow');
+    });
+  });
+
   describe('fixture-layout-wrapper', () => {
     let records: UsageRecord[];
     beforeAll(async () => {

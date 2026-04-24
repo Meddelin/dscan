@@ -23,8 +23,9 @@ import type {
 } from '../types/dataset.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { prescanBeaver } from '../prescan/beaver.js';
+import { prescanLocalLibs } from '../prescan/local-lib.js';
 import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
-import type { BeaverRegistry } from '../types/prescan.js';
+import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
 import type { SignalContext } from '../classify/signals.js';
 
 export const SCANNER_VERSION = '0.1.0';
@@ -84,6 +85,12 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     const repoRoot = await resolveRepoRoot(repo, configDir);
     const perRepo = await loadPerRepoConfig(repoRoot);
     const resolver = await createTsResolver(repoRoot, perRepo.tsconfig);
+    const localLibRegistry = await prescanLocalLibs(
+      perRepo,
+      repoRoot,
+      beaverRegistry,
+      perRepo.tsconfig,
+    );
 
     const files = await discoverFiles(repoId, repoRoot, perRepo);
     filesScanned += files.length;
@@ -97,6 +104,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
       repoRoot,
       resolver,
       beaverRegistry,
+      localLibRegistry,
       globalPrimitiveNames: config.primitiveNames ?? DEFAULT_PRIMITIVE_NAMES,
       thresholds: config.thresholds,
     });
@@ -105,6 +113,29 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     allRecords.push(...perRepoResult.shadowRecords);
     allRecords.push(...(perRepoResult.unresolved as UnresolvedRecord[]));
     allWarnings.push(...perRepoResult.warnings);
+
+    for (const failed of localLibRegistry.prescanFailed) {
+      allWarnings.push({
+        repoId,
+        code: 'local-lib-prescan-failed',
+        message: `Local library "${failed}" prescan failed; components fall back to config.kind`,
+      });
+    }
+
+    const unresolvedRate =
+      perRepoResult.usages.length + perRepoResult.unresolved.length > 0
+        ? perRepoResult.unresolved.length /
+          (perRepoResult.usages.length + perRepoResult.unresolved.length)
+        : 0;
+    if (unresolvedRate > config.thresholds.unresolvedDynamicWarningPct) {
+      allWarnings.push({
+        repoId,
+        code: 'unresolved-dynamic-rate-exceeded',
+        message: `Unresolved-dynamic rate ${(unresolvedRate * 100).toFixed(2)}% exceeds threshold ${(
+          config.thresholds.unresolvedDynamicWarningPct * 100
+        ).toFixed(2)}% (§5.4)`,
+      });
+    }
   }
 
   const sorted = sortRecords(allRecords);
@@ -169,6 +200,7 @@ interface ClassifyRepoInput {
   repoRoot: string;
   resolver: TsResolver;
   beaverRegistry: BeaverRegistry;
+  localLibRegistry: LocalLibRegistry;
   globalPrimitiveNames: string[];
   thresholds: {
     reusableLocalFiles: number;
@@ -204,6 +236,7 @@ async function classifyRepo(input: ClassifyRepoInput) {
       repoRoot: input.repoRoot,
       resolver: input.resolver,
       beaverRegistry: input.beaverRegistry,
+      localLibRegistry: input.localLibRegistry,
     });
     for (const pre of result.preClassified) {
       if (pre.kind === 'finalized') finalizedUsages.push(pre.record);

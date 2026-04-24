@@ -43,5 +43,10 @@
     "name": "fixture-layout-wrapper",
     "gitUrl": "ssh://git@localhost/fixture-layout-wrapper.git",
     "localPath": "../tests/fixtures/fixture-layout-wrapper"
+  },
+  {
+    "name": "fixture-local-lib-backed",
+    "gitUrl": "ssh://git@localhost/fixture-local-lib-backed.git",
+    "localPath": "../tests/fixtures/fixture-local-lib-backed"
   }
 ]

@@ -1,0 +1,12 @@
+{
+  "include": ["src/**/*.{ts,tsx,js,jsx}"],
+  "exclude": [],
+  "localLibraries": [
+    {
+      "libId": "team-kit",
+      "matchPattern": "src/shared/kit/**",
+      "source": { "type": "local-path", "path": "src/shared/kit" },
+      "kind": "partially-beaver-backed"
+    }
+  ]
+}

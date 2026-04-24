@@ -49,7 +49,11 @@ export function buildAggregates(input: AggregateInput): Aggregates {
 
   const shadowLandscape = computeShadowLandscape(shadowComponents);
 
-  const invariants = checkInvariants(input.records);
+  const invariants = checkInvariants(
+    input.records,
+    beaverCoverage,
+    shadowLandscape.byFile,
+  );
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -195,7 +199,11 @@ function promoteLevel(a: ShadowLevel, b: ShadowLevel): ShadowLevel {
   return LEVEL_ORDER[a] >= LEVEL_ORDER[b] ? a : b;
 }
 
-function checkInvariants(records: DatasetRecord[]): InvariantReport {
+function checkInvariants(
+  records: DatasetRecord[],
+  beaverCoverage: Array<{ package: string; instances: number }>,
+  shadowByFile: ShadowByFile[],
+): InvariantReport {
   const violations: Array<{ code: string; message: string; count: number }> = [];
   const bump = (code: string, message: string): void => {
     const existing = violations.find((v) => v.code === code);
@@ -205,6 +213,9 @@ function checkInvariants(records: DatasetRecord[]): InvariantReport {
 
   const usages = records.filter((r): r is UsageRecord => r.kind === 'usage');
   let checked = 0;
+
+  let beaverUsages = 0;
+  let shadowUsages = 0;
 
   for (const u of usages) {
     checked++;
@@ -232,6 +243,32 @@ function checkInvariants(records: DatasetRecord[]): InvariantReport {
     if (u.schemaVersion !== SCHEMA_VERSION) {
       bump('schema-version-fixed', 'schemaVersion drift (§10.1 #6)');
     }
+    if (u.category === 'beaver') beaverUsages++;
+    if (u.bucket === 'shadow') shadowUsages++;
+  }
+
+  // Invariant #5 (§10.1): dataset completeness — aggregated sums must match
+  // the dataset's own tallies. Decoupling point: if the aggregator drops
+  // records, coverage/landscape will diverge from what lives in dataset.jsonl.
+  const coverageInstanceSum = beaverCoverage.reduce(
+    (sum, c) => sum + c.instances,
+    0,
+  );
+  if (coverageInstanceSum !== beaverUsages) {
+    bump(
+      'dataset-completeness-beaver',
+      `beaverCoverage total ${coverageInstanceSum} ≠ category=beaver usage count ${beaverUsages} (§10.1 #5)`,
+    );
+  }
+  const shadowFileUsageSum = shadowByFile.reduce(
+    (sum, f) => sum + f.usageCount,
+    0,
+  );
+  if (shadowFileUsageSum !== shadowUsages) {
+    bump(
+      'dataset-completeness-shadow',
+      `shadowLandscape byFile usage total ${shadowFileUsageSum} ≠ bucket=shadow usage count ${shadowUsages} (§10.1 #5)`,
+    );
   }
 
   return {
