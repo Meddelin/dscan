@@ -1,0 +1,17 @@
+[
+  {
+    "name": "fixture-pure-adoption",
+    "gitUrl": "ssh://git@localhost/fixture-pure-adoption.git",
+    "localPath": "../tests/fixtures/fixture-pure-adoption"
+  },
+  {
+    "name": "fixture-shadow-primitive",
+    "gitUrl": "ssh://git@localhost/fixture-shadow-primitive.git",
+    "localPath": "../tests/fixtures/fixture-shadow-primitive"
+  },
+  {
+    "name": "fixture-mixed",
+    "gitUrl": "ssh://git@localhost/fixture-mixed.git",
+    "localPath": "../tests/fixtures/fixture-mixed"
+  }
+]

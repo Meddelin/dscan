@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.cache/
+results/
+*.log
+.DS_Store
+.vscode/
+.idea/
+coverage/
+*.tsbuildinfo

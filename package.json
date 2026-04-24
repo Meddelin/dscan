@@ -1,0 +1,42 @@
+{
+  "name": "beaver-scan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Beaver Adoption Scanner — CLI for measuring Beaver DS adoption across consumer repos",
+  "type": "module",
+  "bin": {
+    "beaver-scan": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "dependencies": {
+    "@typescript-eslint/typescript-estree": "^8.15.0",
+    "commander": "^12.1.0",
+    "fdir": "^6.4.2",
+    "picomatch": "^4.0.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.9",
+    "@types/picomatch": "^3.0.1",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
