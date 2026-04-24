@@ -1,8 +1,25 @@
 # Beaver Adoption Scanner — Implementation Plan
 
-**Context:** PRD v2 ([../ds-adoption-scanner-prd-v2.md](../ds-adoption-scanner-prd-v2.md)). Current state = commit `39e54a5` (M0 vertical slice).
+**Context:** PRD v2 ([../ds-adoption-scanner-prd-v2.md](../ds-adoption-scanner-prd-v2.md)).
 **Owner:** Stanislav (solo).
 **Horizon:** до первой production-сдачи (все 8 стадий + viewer + dry-run на реальных репо).
+
+## Статус (snapshot)
+
+| Веха | Коммит | Статус |
+|------|--------|--------|
+| M0 scaffold | `39e54a5` | ✅ |
+| M1 resolve + Beaver prescan | `0af91f4` | ✅ |
+| M2 Stage 6 Этап B + ShadowComponentRecord | `5db2d0d` | ✅ |
+| M3 local-lib prescan + unresolved warnings | `c541a71` | ✅ |
+| M4 route resolver (Stage 7) | `e43d6a9` | ✅ |
+| M5 metric E + viewer v1 + update/clean | `2993784` | ✅ |
+| M6a invariants + git clone + docs | `957b5a0` | ✅ |
+| M6b worker pool | — | deferred |
+| M7 real dry-run + FP SLA | — | blocked on SSH access |
+
+78/78 vitest specs green across 6 test files. Smoke run on 11 fixtures
+produces zero invariant violations.
 
 ## Принципы
 
@@ -281,7 +298,17 @@
 
 ---
 
-## M6 — Ops hardening
+## M6a — Invariants + git clone (shipped)
+
+Closed in commit `957b5a0`. Invariants #1/#2 added (#3-#5, #7 already in
+place from M2/M3); `WarningSchema` + `WARNING_CODES` typed in `src/config/
+schema.ts`, codes documented in [`docs/warnings.md`](../docs/warnings.md).
+Consumer repos clone into `.cache/repos/<repoId>` on first run; barrel
+re-exports (`export { X } from './X'`) are aliased at profile build time
+so pending usages resolve correctly. `run --no-fail-on-invariant`,
+`beaver-scan update`, and `beaver-scan clean` wired in.
+
+## M6b — Worker pool (deferred)
 
 **Goal.** Готовность к регулярному запуску. Worker pool, полный invariants check, стабильные warnings.
 
@@ -323,9 +350,11 @@
 
 ---
 
-## M7 — Real dry-run + false-positive SLA
+## M7 — Real dry-run + false-positive SLA (blocked)
 
 **Goal.** Первый scan против реальных T-Bank репо. Измерение метрики false-positive (§10.3), тюнинг whitelist/thresholds. Продуктовое подтверждение MVP.
+
+**Блокер:** доступ к T-Bank GitLab SSH + Beaver-репо. У Claude-code доступа нет — эту веху исполняет Stanislav на своей машине по [operator-runbook.md](../docs/operator-runbook.md). Этапы и критерии остаются как ниже.
 
 **Scope.**
 
