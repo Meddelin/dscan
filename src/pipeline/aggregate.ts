@@ -4,10 +4,13 @@ import type {
   InvariantReport,
   ShadowByComponent,
   ShadowByFile,
+  ShadowComponentRecord,
+  ShadowLevel,
   UsageRecord,
   Warning,
 } from '../types/dataset.js';
 import { SCHEMA_VERSION } from '../types/dataset.js';
+import { shadowGroupKey } from './classify-pass.js';
 
 export interface AggregateInput {
   records: DatasetRecord[];
@@ -21,13 +24,16 @@ export interface AggregateInput {
 }
 
 /**
- * Stage 8: Aggregate (§4.8 + §7).
- * MVP subset: metrics A, B, D, C (per-file + per-component heuristic grouping).
- * E (per-route) is emitted empty until Stage 7 lands.
+ * Stage 8 (§4.8 + §7).
+ * MVP subset: metrics A, B, C (per-file + per-component via ShadowComponentRecord
+ * + §7.3 hash groupKey), D. Metric E pending Stage 7 (M4).
  */
 export function buildAggregates(input: AggregateInput): Aggregates {
   const usages = input.records.filter(
     (r): r is UsageRecord => r.kind === 'usage',
+  );
+  const shadowComponents = input.records.filter(
+    (r): r is ShadowComponentRecord => r.kind === 'shadow-component',
   );
 
   const globalAdoption = computeAdoption(usages);
@@ -41,7 +47,7 @@ export function buildAggregates(input: AggregateInput): Aggregates {
 
   const beaverCoverage = computeBeaverCoverage(usages);
 
-  const shadowLandscape = computeShadowLandscape(usages);
+  const shadowLandscape = computeShadowLandscape(shadowComponents);
 
   const invariants = checkInvariants(input.records);
 
@@ -102,52 +108,19 @@ function computeBeaverCoverage(
     .sort((a, b) => b.instances - a.instances || cmp(a.package, b.package));
 }
 
-function computeShadowLandscape(usages: UsageRecord[]): {
+function computeShadowLandscape(shadows: ShadowComponentRecord[]): {
   byFile: ShadowByFile[];
   byComponent: ShadowByComponent[];
 } {
-  const shadows = usages.filter((u) => u.bucket === 'shadow');
-
-  // Per-file: group by (repoId + filePath + componentName)
-  const fileGroups = new Map<
-    string,
-    {
-      repoId: string;
-      filePath: string;
-      componentName: string;
-      level: NonNullable<UsageRecord['shadowLevel']>;
-      usageCount: number;
-      filesUsedIn: Set<string>;
-    }
-  >();
-
-  for (const u of shadows) {
-    const key = `${u.repoId}::${u.filePath}::${u.componentName}`;
-    const existing = fileGroups.get(key);
-    if (existing) {
-      existing.usageCount++;
-      existing.filesUsedIn.add(u.filePath);
-    } else {
-      fileGroups.set(key, {
-        repoId: u.repoId,
-        filePath: u.filePath,
-        componentName: u.componentName,
-        level: u.shadowLevel ?? 'possible',
-        usageCount: 1,
-        filesUsedIn: new Set([u.filePath]),
-      });
-    }
-  }
-
-  const byFile: ShadowByFile[] = [...fileGroups.values()]
-    .map((g) => ({
-      repoId: g.repoId,
-      filePath: g.filePath,
-      componentName: g.componentName,
-      level: g.level,
-      signals: [],
-      usageCount: g.usageCount,
-      filesUsedIn: g.filesUsedIn.size,
+  const byFile: ShadowByFile[] = shadows
+    .map((s) => ({
+      repoId: s.repoId,
+      filePath: s.filePath,
+      componentName: s.componentName,
+      level: s.shadowLevel,
+      signals: s.signals,
+      usageCount: s.usageCount,
+      filesUsedIn: s.filesUsedIn,
       primaryRoute: { kind: 'unsupported' as const },
     }))
     .sort(
@@ -157,32 +130,36 @@ function computeShadowLandscape(usages: UsageRecord[]): {
         cmp(a.componentName, b.componentName),
     );
 
-  // Per-component: group by componentName + level (MVP heuristic — signatures
-  // require per-component AST analysis we don't have yet; see §7.3).
+  // Per-component grouping (§7.3): hash by (name + sorted props + jsxCount bucket).
   const componentGroups = new Map<
     string,
     {
       componentName: string;
-      level: NonNullable<UsageRecord['shadowLevel']>;
+      level: ShadowLevel;
       repos: Set<string>;
       totalUsages: number;
       implementations: Array<{ repoId: string; filePath: string }>;
+      signalsUnion: Set<string>;
     }
   >();
-  for (const f of byFile) {
-    const key = `${f.componentName}::${f.level}`;
+  for (const s of shadows) {
+    const key = shadowGroupKey(s);
     const existing = componentGroups.get(key);
     if (existing) {
-      existing.repos.add(f.repoId);
-      existing.totalUsages += f.usageCount;
-      existing.implementations.push({ repoId: f.repoId, filePath: f.filePath });
+      existing.repos.add(s.repoId);
+      existing.totalUsages += s.usageCount;
+      existing.implementations.push({ repoId: s.repoId, filePath: s.filePath });
+      for (const sig of s.signals) existing.signalsUnion.add(sig);
+      // Level promotion: confirmed > likely > possible.
+      existing.level = promoteLevel(existing.level, s.shadowLevel);
     } else {
       componentGroups.set(key, {
-        componentName: f.componentName,
-        level: f.level,
-        repos: new Set([f.repoId]),
-        totalUsages: f.usageCount,
-        implementations: [{ repoId: f.repoId, filePath: f.filePath }],
+        componentName: s.componentName,
+        level: s.shadowLevel,
+        repos: new Set([s.repoId]),
+        totalUsages: s.usageCount,
+        implementations: [{ repoId: s.repoId, filePath: s.filePath }],
+        signalsUnion: new Set(s.signals),
       });
     }
   }
@@ -206,6 +183,16 @@ function computeShadowLandscape(usages: UsageRecord[]): {
     );
 
   return { byFile, byComponent };
+}
+
+const LEVEL_ORDER: Record<ShadowLevel, number> = {
+  confirmed: 3,
+  likely: 2,
+  possible: 1,
+};
+
+function promoteLevel(a: ShadowLevel, b: ShadowLevel): ShadowLevel {
+  return LEVEL_ORDER[a] >= LEVEL_ORDER[b] ? a : b;
 }
 
 function checkInvariants(records: DatasetRecord[]): InvariantReport {

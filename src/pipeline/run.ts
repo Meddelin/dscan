@@ -8,8 +8,10 @@ import {
 } from '../config/loader.js';
 import type { RepositoryEntry } from '../config/schema.js';
 import { discoverFiles } from './discovery.js';
-import { parseFiles } from './parse.js';
-import { categorizeFile } from './categorize.js';
+import { parseFiles, type ParsedFile } from './parse.js';
+import { collectUsages, type PendingUsage } from './collect.js';
+import { buildProfilesForFile, profileKey, type ComponentProfile } from './profile.js';
+import { classifyPass } from './classify-pass.js';
 import { sortRecords, writeJsonl } from '../writer/jsonl.js';
 import { buildAggregates } from './aggregate.js';
 import { renderReport, writeReport } from '../viewer/render.js';
@@ -21,9 +23,21 @@ import type {
 } from '../types/dataset.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { prescanBeaver } from '../prescan/beaver.js';
-import { createTsResolver } from '../resolve/ts-resolver.js';
+import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
+import type { BeaverRegistry } from '../types/prescan.js';
+import type { SignalContext } from '../classify/signals.js';
 
 export const SCANNER_VERSION = '0.1.0';
+
+const DEFAULT_PRIMITIVE_NAMES = [
+  'Button', 'Input', 'TextField', 'Select', 'Checkbox', 'Radio', 'Switch',
+  'Toggle', 'Text', 'Heading', 'Title', 'Label', 'Icon', 'Avatar', 'Badge',
+  'Tag', 'Chip', 'Card', 'Modal', 'Dialog', 'Drawer', 'Tooltip', 'Popover',
+  'Popup', 'Menu', 'Dropdown', 'Tab', 'Tabs', 'Panel', 'Accordion',
+  'Divider', 'Spacer', 'Stack', 'Flex', 'Grid', 'Box', 'Container',
+  'Alert', 'Notification', 'Toast', 'Skeleton', 'Spinner', 'Loader',
+  'Progress',
+];
 
 export interface RunOptions {
   configPath: string;
@@ -37,6 +51,7 @@ export interface RunResult {
     reposScanned: number;
     filesScanned: number;
     usages: number;
+    shadowComponents: number;
     unresolved: number;
     warnings: number;
     durationMs: number;
@@ -44,12 +59,6 @@ export interface RunResult {
   };
 }
 
-/**
- * Full pipeline runner (§6.5 `beaver-scan run`).
- * Wires Stage 5a (Beaver prescan), Stage 3 (resolve), Stages 1/2/4/6-partial/8
- * and renders the HTML viewer. Stages 5b (local-lib prescan), 6 Этап B, and 7
- * remain stubbed — see implementation/plan.md.
- */
 export async function runScan(opts: RunOptions): Promise<RunResult> {
   const started = performance.now();
   const { config, configDir } = await loadGlobalConfig(opts.configPath);
@@ -73,7 +82,6 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
   for (const repo of repositories) {
     const repoId = repoIdFor(repo);
     const repoRoot = await resolveRepoRoot(repo, configDir);
-
     const perRepo = await loadPerRepoConfig(repoRoot);
     const resolver = await createTsResolver(repoRoot, perRepo.tsconfig);
 
@@ -83,21 +91,20 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     const { parsed, warnings: parseWarnings } = await parseFiles(files);
     allWarnings.push(...parseWarnings);
 
-    for (const parsedFile of parsed) {
-      const { usages, unresolved, warnings } = categorizeFile({
-        parsed: parsedFile,
-        perRepo,
-        repoRoot,
-        resolver,
-        beaverRegistry,
-        ...(config.primitiveNames !== undefined
-          ? { globalPrimitiveNames: config.primitiveNames }
-          : {}),
-      });
-      allRecords.push(...(usages as UsageRecord[]));
-      allRecords.push(...(unresolved as UnresolvedRecord[]));
-      allWarnings.push(...warnings);
-    }
+    const perRepoResult = await classifyRepo({
+      parsed,
+      perRepo,
+      repoRoot,
+      resolver,
+      beaverRegistry,
+      globalPrimitiveNames: config.primitiveNames ?? DEFAULT_PRIMITIVE_NAMES,
+      thresholds: config.thresholds,
+    });
+
+    allRecords.push(...(perRepoResult.usages as UsageRecord[]));
+    allRecords.push(...perRepoResult.shadowRecords);
+    allRecords.push(...(perRepoResult.unresolved as UnresolvedRecord[]));
+    allWarnings.push(...perRepoResult.warnings);
   }
 
   const sorted = sortRecords(allRecords);
@@ -136,6 +143,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
   }
 
   const usages = sorted.filter((r) => r.kind === 'usage').length;
+  const shadowComponents = sorted.filter((r) => r.kind === 'shadow-component').length;
   const unresolved = sorted.filter((r) => r.kind === 'unresolved-dynamic').length;
 
   return {
@@ -146,11 +154,112 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
       reposScanned: repositories.length,
       filesScanned,
       usages,
+      shadowComponents,
       unresolved,
       warnings: allWarnings.length,
       durationMs: Math.round(performance.now() - started),
       beaverVersion: beaverRegistry.version,
     },
+  };
+}
+
+interface ClassifyRepoInput {
+  parsed: ParsedFile[];
+  perRepo: Awaited<ReturnType<typeof loadPerRepoConfig>>;
+  repoRoot: string;
+  resolver: TsResolver;
+  beaverRegistry: BeaverRegistry;
+  globalPrimitiveNames: string[];
+  thresholds: {
+    reusableLocalFiles: number;
+    substantialMarkupElements: number;
+    codeSnippetMaxLines: number;
+  };
+}
+
+async function classifyRepo(input: ClassifyRepoInput) {
+  // Pass-A: build profiles for every file (components + their metadata).
+  const profiles = new Map<string, ComponentProfile>();
+  for (const parsed of input.parsed) {
+    const fileProfiles = await buildProfilesForFile({
+      parsed,
+      resolver: input.resolver,
+      beaverRegistry: input.beaverRegistry,
+      codeSnippetMaxLines: input.thresholds.codeSnippetMaxLines,
+    });
+    for (const p of fileProfiles) {
+      profiles.set(profileKey(p), p);
+    }
+  }
+
+  // Pass-A: collect pre-classified + pending usages.
+  const finalizedUsages: UsageRecord[] = [];
+  const pending: PendingUsage[] = [];
+  const unresolved: UnresolvedRecord[] = [];
+  const warnings: Warning[] = [];
+  for (const parsed of input.parsed) {
+    const result = collectUsages({
+      parsed,
+      perRepo: input.perRepo,
+      repoRoot: input.repoRoot,
+      resolver: input.resolver,
+      beaverRegistry: input.beaverRegistry,
+    });
+    for (const pre of result.preClassified) {
+      if (pre.kind === 'finalized') finalizedUsages.push(pre.record);
+      else pending.push(pre.pending);
+    }
+    unresolved.push(...result.unresolved);
+    warnings.push(...result.warnings);
+  }
+
+  // Cross-file aggregation for `reusable-local` + ShadowComponentRecord fields.
+  // Each pending points at `definingAbsPath` + `definingSymbol` → bump profile
+  // counters keyed the same way.
+  const counters = new Map<string, { files: Set<string>; count: number }>();
+  for (const p of pending) {
+    const key = profileKey({
+      absPath: p.definingAbsPath,
+      componentName: p.definingSymbol,
+    });
+    const bucket = counters.get(key);
+    if (bucket) {
+      bucket.files.add(p.importerAbsPath);
+      bucket.count++;
+    } else {
+      counters.set(key, {
+        files: new Set([p.importerAbsPath]),
+        count: 1,
+      });
+    }
+  }
+  for (const [key, stats] of counters) {
+    const profile = profiles.get(key);
+    if (!profile) continue;
+    profile.usageCount = stats.count;
+    profile.filesUsedIn = stats.files.size;
+  }
+
+  const signalContext: SignalContext = {
+    primitiveNames: new Set(
+      input.perRepo.primitiveNamesOverride ?? input.globalPrimitiveNames,
+    ),
+    reusableLocalThreshold: input.thresholds.reusableLocalFiles,
+    substantialMarkupThreshold: input.thresholds.substantialMarkupElements,
+  };
+
+  // Pass-B: apply Stage 6 Этап B to every pending usage.
+  const { usages: classifiedUsages, shadowRecords } = classifyPass({
+    pending,
+    profiles,
+    signalContext,
+  });
+
+  return {
+    usages: [...finalizedUsages, ...classifiedUsages],
+    shadowRecords,
+    unresolved,
+    warnings,
   };
 }
 

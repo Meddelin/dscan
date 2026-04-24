@@ -23,5 +23,25 @@
     "name": "fixture-tsconfig-paths",
     "gitUrl": "ssh://git@localhost/fixture-tsconfig-paths.git",
     "localPath": "../tests/fixtures/fixture-tsconfig-paths"
+  },
+  {
+    "name": "fixture-wrapper-adoption",
+    "gitUrl": "ssh://git@localhost/fixture-wrapper-adoption.git",
+    "localPath": "../tests/fixtures/fixture-wrapper-adoption"
+  },
+  {
+    "name": "fixture-wrapper-customized",
+    "gitUrl": "ssh://git@localhost/fixture-wrapper-customized.git",
+    "localPath": "../tests/fixtures/fixture-wrapper-customized"
+  },
+  {
+    "name": "fixture-styled-beaver",
+    "gitUrl": "ssh://git@localhost/fixture-styled-beaver.git",
+    "localPath": "../tests/fixtures/fixture-styled-beaver"
+  },
+  {
+    "name": "fixture-layout-wrapper",
+    "gitUrl": "ssh://git@localhost/fixture-layout-wrapper.git",
+    "localPath": "../tests/fixtures/fixture-layout-wrapper"
   }
 ]

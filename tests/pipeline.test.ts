@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runScan } from '../src/pipeline/run.js';
-import type { Aggregates, UsageRecord } from '../src/types/dataset.js';
+import type {
+  Aggregates,
+  ShadowComponentRecord,
+  UsageRecord,
+} from '../src/types/dataset.js';
 import { readJsonl } from '../src/writer/jsonl.js';
 import { renderReport } from '../src/viewer/render.js';
 
@@ -71,7 +75,10 @@ async function runOnFixture(fixtureName: string) {
   const aggregates = JSON.parse(text) as Aggregates;
   const dataset = await readJsonl(result.datasetPath);
   const records = dataset.filter((r): r is UsageRecord => r.kind === 'usage');
-  return { result, aggregates, records };
+  const shadows = dataset.filter(
+    (r): r is ShadowComponentRecord => r.kind === 'shadow-component',
+  );
+  return { result, aggregates, records, shadows };
 }
 
 describe('pipeline end-to-end', () => {
@@ -116,28 +123,105 @@ describe('pipeline end-to-end', () => {
     });
   });
 
-  describe('fixture-shadow-primitive', () => {
+  describe('fixture-shadow-primitive (confirmed level)', () => {
     let aggregates: Aggregates;
     let records: UsageRecord[];
+    let shadows: ShadowComponentRecord[];
 
     beforeAll(async () => {
       process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
-      ({ aggregates, records } = await runOnFixture('fixture-shadow-primitive'));
+      ({ aggregates, records, shadows } = await runOnFixture(
+        'fixture-shadow-primitive',
+      ));
     });
 
-    it('flags local Button + Card as shadow/possible', () => {
-      const shadows = records.filter((r) => r.bucket === 'shadow');
-      const names = new Set(shadows.map((s) => s.componentName));
-      expect(names.has('Button')).toBe(true);
-      expect(names.has('Card')).toBe(true);
-      for (const s of shadows) {
-        expect(s.shadowLevel).toBe('possible');
-        expect(s.classificationSource).toBe('parallel-local-ui');
-      }
+    it('marks Button as confirmed shadow (primitive + substantial markup + no Beaver)', () => {
+      const btn = records.find(
+        (r) => r.componentName === 'Button' && r.bucket === 'shadow',
+      );
+      expect(btn?.shadowLevel).toBe('confirmed');
+    });
+
+    it('Card stays at possible (≤4 JSX elements)', () => {
+      const card = records.find((r) => r.componentName === 'Card');
+      expect(card?.shadowLevel).toBe('possible');
     });
 
     it('globalAdoption = 0 (all primitives are shadow)', () => {
       expect(aggregates.metrics.globalAdoption.value).toBe(0);
+    });
+
+    it('emits ShadowComponentRecord with populated signature', () => {
+      const btn = shadows.find((s) => s.componentName === 'Button');
+      expect(btn).toBeDefined();
+      expect(btn!.signature.jsxElementCount).toBeGreaterThanOrEqual(5);
+      expect(btn!.signature.propNames).toContain('onClick');
+      expect(btn!.signature.beaverImports).toHaveLength(0);
+      expect(btn!.codeSnippet.length).toBeGreaterThan(0);
+    });
+
+    it('signals include primitive-like-name + substantial-markup', () => {
+      const btn = shadows.find((s) => s.componentName === 'Button');
+      expect(btn?.signals).toEqual(
+        expect.arrayContaining(['primitive-like-name', 'substantial-markup']),
+      );
+    });
+  });
+
+  describe('fixture-wrapper-adoption', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-wrapper-adoption'));
+    });
+    it('PaymentPanel = adoption / beaver-composition (§3.6)', () => {
+      const fw = records.find((r) => r.componentName === 'PaymentPanel');
+      expect(fw?.bucket).toBe('adoption');
+      expect(fw?.classificationSource).toBe('beaver-composition');
+    });
+  });
+
+  describe('fixture-wrapper-customized', () => {
+    let records: UsageRecord[];
+    let shadows: ShadowComponentRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records, shadows } = await runOnFixture('fixture-wrapper-customized'));
+    });
+    it('BrandButton = shadow / wraps-with-customization', () => {
+      const bb = records.find((r) => r.componentName === 'BrandButton');
+      expect(bb?.bucket).toBe('shadow');
+      expect(bb?.classificationSource).toBe('wraps-with-customization');
+    });
+    it('ShadowComponentRecord has wraps-with-customization signal', () => {
+      const bb = shadows.find((s) => s.componentName === 'BrandButton');
+      expect(bb?.signals).toContain('wraps-with-customization');
+    });
+  });
+
+  describe('fixture-styled-beaver', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-styled-beaver'));
+    });
+    it('styled(Button) = shadow', () => {
+      const sb = records.find((r) => r.componentName === 'StyledButton');
+      expect(sb?.bucket).toBe('shadow');
+      expect(sb?.classificationSource).toBe('wraps-with-customization');
+    });
+  });
+
+  describe('fixture-layout-wrapper', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-layout-wrapper'));
+    });
+    it('Row = adoption / beaver-composition (markup < 5, no className)', () => {
+      const row = records.find((r) => r.componentName === 'Row');
+      expect(row?.bucket).toBe('adoption');
+      expect(row?.classificationSource).toBe('beaver-composition');
     });
   });
 

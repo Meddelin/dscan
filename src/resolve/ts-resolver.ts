@@ -122,9 +122,13 @@ async function loadCompilerOptions(
 }
 
 function defaultOptions(repoRoot: string): ts.CompilerOptions {
+  // Node10 gives us permissive extension lookup (.ts/.tsx/.d.ts/.js/.jsx)
+  // without requiring a tsconfig. Bundler is stricter in some TS versions and
+  // occasionally declines to resolve `./foo` without an explicit extension
+  // when no tsconfig is present.
   return {
     module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    moduleResolution: ts.ModuleResolutionKind.Node10,
     target: ts.ScriptTarget.ES2022,
     jsx: ts.JsxEmit.Preserve,
     allowJs: true,
