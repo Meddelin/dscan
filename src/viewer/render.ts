@@ -114,7 +114,34 @@ export function renderReport(aggregates: Aggregates): string {
 
   <section class="panel">
     <h2>E — Per-route adoption</h2>
-    <p class="muted">Route resolution is not implemented in this MVP slice — section will populate once Stage 7 lands.</p>
+    <table class="data-table" id="per-route-table">
+      <thead>
+        <tr>
+          <th>Repo</th>
+          <th>Route</th>
+          <th class="num">Adoption</th>
+          <th class="num">adoption / shadow</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Shared components</h2>
+    <p class="muted">Files reachable from 2+ page components — these usages don't count toward any single-route metric E (§7.5) but are important for adoption strategy.</p>
+    <table class="data-table" id="shared-components-table">
+      <thead>
+        <tr>
+          <th>Repo</th>
+          <th>File</th>
+          <th>Component</th>
+          <th>Bucket</th>
+          <th class="num">Routes</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </section>
 
   <section class="panel footnote">
@@ -299,6 +326,35 @@ function renderCoverage() {
   }).join('') || '<tr><td colspan="3" class="muted">No Beaver packages detected in scanned code.</td></tr>';
 }
 
+function renderPerRoute() {
+  var tbody = document.querySelector('#per-route-table tbody');
+  var rows = DATA.metrics.perRouteAdoption;
+  tbody.innerHTML = rows.map(function (r) {
+    var bar = '<span class="adoption-bar"><span style="width:' + (r.value * 100).toFixed(1) + '%"></span></span>';
+    var ratio = r.adoptionInstances + ' / ' + r.shadowInstances;
+    return '<tr>' +
+      td(escapeHtml(r.repoId)) +
+      td(escapeHtml(r.routePath)) +
+      td(bar + pct(r.value), 'num') +
+      td(ratio, 'num') +
+      '</tr>';
+  }).join('') || '<tr><td colspan="4" class="muted">No bound routes yet — no repos with router configs scanned.</td></tr>';
+}
+
+function renderSharedComponents() {
+  var tbody = document.querySelector('#shared-components-table tbody');
+  var rows = DATA.metrics.sharedComponentsAdoption;
+  tbody.innerHTML = rows.map(function (s) {
+    return '<tr>' +
+      td(escapeHtml(s.repoId)) +
+      td(escapeHtml(s.filePath)) +
+      td(escapeHtml(s.componentName)) +
+      td(escapeHtml(s.bucket)) +
+      td(String(s.sharedAcrossRoutes.length), 'num') +
+      '</tr>';
+  }).join('') || '<tr><td colspan="5" class="muted">No shared components detected.</td></tr>';
+}
+
 function renderInvariants() {
   var inv = DATA.invariants;
   var label = inv.failed === 0
@@ -358,6 +414,8 @@ renderPerRepo();
 renderShadowComponent();
 renderShadowFile();
 renderCoverage();
+renderPerRoute();
+renderSharedComponents();
 renderInvariants();
 bindTabs();
 `;

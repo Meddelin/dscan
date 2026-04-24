@@ -49,6 +49,9 @@ export function buildAggregates(input: AggregateInput): Aggregates {
 
   const shadowLandscape = computeShadowLandscape(shadowComponents);
 
+  const perRouteAdoption = computePerRouteAdoption(usages);
+  const sharedComponentsAdoption = computeSharedComponents(usages);
+
   const invariants = checkInvariants(
     input.records,
     beaverCoverage,
@@ -73,8 +76,8 @@ export function buildAggregates(input: AggregateInput): Aggregates {
       perRepoAdoption,
       shadowLandscape,
       beaverCoverage,
-      perRouteAdoption: [],
-      sharedComponentsAdoption: [],
+      perRouteAdoption,
+      sharedComponentsAdoption,
     },
     invariants,
     warnings: input.warnings,
@@ -187,6 +190,100 @@ function computeShadowLandscape(shadows: ShadowComponentRecord[]): {
     );
 
   return { byFile, byComponent };
+}
+
+function computePerRouteAdoption(
+  usages: UsageRecord[],
+): Array<{
+  repoId: string;
+  routePath: string;
+  value: number;
+  adoptionInstances: number;
+  shadowInstances: number;
+}> {
+  // §7.5: E(r, p) only counts usages with route.kind === 'bound'.
+  // Neither unmapped nor shared usages participate in the denominator.
+  const buckets = new Map<
+    string,
+    {
+      repoId: string;
+      routePath: string;
+      adoption: number;
+      shadow: number;
+    }
+  >();
+  for (const u of usages) {
+    if (u.route.kind !== 'bound') continue;
+    if (u.bucket === 'neither') continue;
+    const key = `${u.repoId}\u0000${u.route.path}`;
+    const entry =
+      buckets.get(key) ??
+      { repoId: u.repoId, routePath: u.route.path, adoption: 0, shadow: 0 };
+    if (u.bucket === 'adoption') entry.adoption++;
+    else if (u.bucket === 'shadow') entry.shadow++;
+    buckets.set(key, entry);
+  }
+  return [...buckets.values()]
+    .map((e) => ({
+      repoId: e.repoId,
+      routePath: e.routePath,
+      value:
+        e.adoption + e.shadow === 0 ? 0 : e.adoption / (e.adoption + e.shadow),
+      adoptionInstances: e.adoption,
+      shadowInstances: e.shadow,
+    }))
+    .sort(
+      (a, b) =>
+        cmp(a.repoId, b.repoId) || cmp(a.routePath, b.routePath),
+    );
+}
+
+function computeSharedComponents(
+  usages: UsageRecord[],
+): Array<{
+  repoId: string;
+  filePath: string;
+  componentName: string;
+  sharedAcrossRoutes: string[];
+  bucket: UsageRecord['bucket'];
+}> {
+  const seen = new Map<
+    string,
+    {
+      repoId: string;
+      filePath: string;
+      componentName: string;
+      paths: string[];
+      bucket: UsageRecord['bucket'];
+    }
+  >();
+  for (const u of usages) {
+    if (u.route.kind !== 'shared') continue;
+    const key = `${u.repoId}\u0000${u.filePath}\u0000${u.componentName}`;
+    if (!seen.has(key)) {
+      seen.set(key, {
+        repoId: u.repoId,
+        filePath: u.filePath,
+        componentName: u.componentName,
+        paths: [...u.route.paths],
+        bucket: u.bucket,
+      });
+    }
+  }
+  return [...seen.values()]
+    .map((s) => ({
+      repoId: s.repoId,
+      filePath: s.filePath,
+      componentName: s.componentName,
+      sharedAcrossRoutes: s.paths,
+      bucket: s.bucket,
+    }))
+    .sort(
+      (a, b) =>
+        cmp(a.repoId, b.repoId) ||
+        cmp(a.filePath, b.filePath) ||
+        cmp(a.componentName, b.componentName),
+    );
 }
 
 const LEVEL_ORDER: Record<ShadowLevel, number> = {

@@ -340,9 +340,10 @@ describe('pipeline end-to-end', () => {
 
   describe('fixture-route-data-router (M4 route binding)', () => {
     let records: UsageRecord[];
+    let aggregates: Aggregates;
     beforeAll(async () => {
       process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
-      ({ records } = await runOnFixture('fixture-route-data-router'));
+      ({ records, aggregates } = await runOnFixture('fixture-route-data-router'));
     });
 
     it('Dashboard-page usage is bound to /dashboard', () => {
@@ -376,6 +377,32 @@ describe('pipeline end-to-end', () => {
       // router.tsx imports Dashboard + Settings, so it's reachable from both
       // pages and lands as `shared` with the two paths.
       expect(router?.route.kind).toBe('shared');
+    });
+
+    it('M5: perRouteAdoption populated with both routes (bound-only)', () => {
+      const routes = aggregates.metrics.perRouteAdoption.filter(
+        (r) => r.repoId === 'fixture-route-data-router',
+      );
+      expect(routes.length).toBe(2);
+      const paths = routes.map((r) => r.routePath).sort();
+      expect(paths).toEqual(['/dashboard', '/settings']);
+      // Each route has at least one adoption usage (direct Beaver).
+      for (const r of routes) {
+        expect(r.adoptionInstances).toBeGreaterThan(0);
+      }
+    });
+
+    it('M5: sharedComponentsAdoption lists usages in shared files', () => {
+      // Usages inside shared files (e.g. Header.tsx, router.tsx) surface here
+      // with their bucket + the set of routes that reach them. Header.tsx
+      // contains an `<h1>` usage → html-native / neither.
+      const shared = aggregates.metrics.sharedComponentsAdoption.filter(
+        (s) =>
+          s.repoId === 'fixture-route-data-router' &&
+          s.filePath === 'src/shared/Header.tsx',
+      );
+      expect(shared.length).toBeGreaterThan(0);
+      expect(shared[0]!.sharedAcrossRoutes).toEqual(['/dashboard', '/settings']);
     });
   });
 

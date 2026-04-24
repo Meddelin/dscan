@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { readFile, writeFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { dirname, isAbsolute, resolve, join } from 'node:path';
 import { runScan, SCANNER_VERSION } from './pipeline/run.js';
 import { readJsonl } from './writer/jsonl.js';
 import { buildAggregates } from './pipeline/aggregate.js';
 import { renderReport, writeReport } from './viewer/render.js';
 import type { Aggregates, Warning } from './types/dataset.js';
-import { ConfigError } from './config/loader.js';
+import { ConfigError, loadGlobalConfig } from './config/loader.js';
+import { gitPull, isGitRepo } from './ops/git.js';
 
 const program = new Command();
 program.name('beaver-scan').version(SCANNER_VERSION);
@@ -80,6 +81,64 @@ program
       await mkdir(dirname(outPath), { recursive: true });
       await writeReport(outPath, html);
       process.stdout.write(`report: ${outPath}\n`);
+    } catch (err) {
+      handleFatal(err);
+    }
+  });
+
+program
+  .command('update')
+  .description('`git pull --ff-only` every cached repo (consumer + Beaver)')
+  .requiredOption('-c, --config <path>', 'path to global config')
+  .action(async (opts: { config: string }) => {
+    try {
+      const { configDir } = await loadGlobalConfig(opts.config);
+      const cacheDir = resolve(configDir, '.cache');
+      const stats = await stat(cacheDir).catch(() => null);
+      if (!stats?.isDirectory()) {
+        process.stdout.write(`No cache at ${cacheDir}; nothing to update.\n`);
+        return;
+      }
+      const entries: string[] = [];
+      const beaverDir = join(cacheDir, 'beaver-ui');
+      if (await isGitRepo(beaverDir)) entries.push(beaverDir);
+      const reposDir = join(cacheDir, 'repos');
+      const reposDirStat = await stat(reposDir).catch(() => null);
+      if (reposDirStat?.isDirectory()) {
+        const repoNames = await readdir(reposDir);
+        for (const name of repoNames) {
+          const full = join(reposDir, name);
+          if (await isGitRepo(full)) entries.push(full);
+        }
+      }
+      for (const dir of entries) {
+        try {
+          await gitPull(dir);
+          process.stdout.write(`pulled: ${dir}\n`);
+        } catch (err) {
+          process.stderr.write(`failed: ${dir} — ${(err as Error).message}\n`);
+        }
+      }
+    } catch (err) {
+      handleFatal(err);
+    }
+  });
+
+program
+  .command('clean')
+  .description('Remove .cache/ adjacent to the config')
+  .requiredOption('-c, --config <path>', 'path to global config')
+  .action(async (opts: { config: string }) => {
+    try {
+      const { configDir } = await loadGlobalConfig(opts.config);
+      const cacheDir = resolve(configDir, '.cache');
+      const stats = await stat(cacheDir).catch(() => null);
+      if (!stats?.isDirectory()) {
+        process.stdout.write(`No cache at ${cacheDir}; nothing to clean.\n`);
+        return;
+      }
+      await rm(cacheDir, { recursive: true, force: true });
+      process.stdout.write(`removed: ${cacheDir}\n`);
     } catch (err) {
       handleFatal(err);
     }
