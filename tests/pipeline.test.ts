@@ -40,7 +40,7 @@ afterAll(async () => {
 
 async function writeConfigs(
   dir: string,
-  repos: Array<{ name: string; localPath: string }>,
+  repos: Array<{ name: string; localPath: string; config?: unknown }>,
 ): Promise<string> {
   const cfg = {
     beaverUrl: 'ssh://fake-unused-because-of-env',
@@ -56,6 +56,7 @@ async function writeConfigs(
         name: r.name,
         gitUrl: 'ssh://x/' + r.name,
         localPath: r.localPath,
+        ...(r.config !== undefined ? { config: r.config } : {}),
       })),
       null,
       2,
@@ -403,6 +404,34 @@ describe('pipeline end-to-end', () => {
       );
       expect(shared.length).toBeGreaterThan(0);
       expect(shared[0]!.sharedAcrossRoutes).toEqual(['/dashboard', '/settings']);
+    });
+  });
+
+  describe('per-repo config is optional (no .beaver-scan.json)', () => {
+    it('fixture-no-config scans using built-in defaults', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const { records } = await runOnFixture('fixture-no-config');
+      expect(records.length).toBeGreaterThan(0);
+      const btn = records.find((r) => r.componentName === 'Button');
+      expect(btn?.category).toBe('beaver');
+      expect(btn?.bucket).toBe('adoption');
+    });
+
+    it('inline config override in repositories.json is honoured', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const dir = await scratchConfigDir();
+      const cfgPath = await writeConfigs(dir, [
+        {
+          name: 'fixture-no-config',
+          localPath: join(FIXTURE_ROOT, 'fixture-no-config'),
+          config: {
+            // Exclude everything — scan should yield zero usages.
+            include: ['never-matches/**/*.tsx'],
+          },
+        },
+      ]);
+      const result = await runScan({ configPath: cfgPath });
+      expect(result.stats.filesScanned).toBe(0);
     });
   });
 

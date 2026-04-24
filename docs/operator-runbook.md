@@ -57,9 +57,38 @@ And `repositories.json`:
 ]
 ```
 
-Each consumer repo must have `.beaver-scan.json` at its root (see
-`tests/fixtures/fixture-pure-adoption/.beaver-scan.json` for a minimal
-example). Missing or malformed → the scanner fails fast with exit 2.
+Consumer repos **do not need to ship any config** — the scanner applies
+sane built-in defaults (`include: src/**/*.{ts,tsx,js,jsx}`, standard
+excludes, no localLibraries, route resolution on). When defaults aren't
+enough, per-repo settings live in one of two places, with this precedence:
+
+1. **Consumer's `.beaver-scan.json`** (at repo root) — if present, wins.
+2. **Inline `config` in `repositories.json`** — operator-side override:
+
+   ```json
+   [
+     {
+       "name": "consumer-app-1",
+       "gitUrl": "ssh://git@gitlab.tbank.ru:7999/consumer/app-1.git",
+       "config": {
+         "exclude": ["src/legacy/**"],
+         "localLibraries": [
+           {
+             "libId": "team-ui-kit",
+             "matchPattern": "src/shared/ui-kit/**",
+             "source": { "type": "local-path", "path": "src/shared/ui-kit" },
+             "kind": "partially-beaver-backed"
+           }
+         ]
+       }
+     }
+   ]
+   ```
+
+3. **Built-in defaults** (Zod schema).
+
+A present-but-malformed `.beaver-scan.json` still fails fast (exit 2) —
+typos shouldn't silently fall through.
 
 ## First run — pilot
 
@@ -144,7 +173,7 @@ Expected duration on an average workstation: **10–30 minutes** (SLA target
 | Exit code 2 | Invalid config (Zod failure) | Error message points at the offending field path. |
 | Exit code 3 | Invariant violation | Re-run with `--no-fail-on-invariant` and inspect `aggregates.invariants.violations[]` in the JSON output. |
 | "git clone failed" for a consumer | SSH / network / missing repo | stderr is raw git. No retry — fix network and re-run. |
-| Per-repo config not found | Consumer repo missing `.beaver-scan.json` | Add the file (see example), commit, re-run. |
+| Invalid per-repo config | Malformed `.beaver-scan.json` OR inline override | stderr shows Zod-style path to the offending field. Missing config is fine — defaults apply. |
 | `unresolved-dynamic-rate-exceeded` warning | Repo uses `React.createElement` or lookup-by-string patterns | Not fatal — scan artefacts are still produced. Review `warnings.json` for specifics. Heavy-use repos may need `unresolvedDynamicWarningPct` raised or a custom plugin (out of MVP). |
 | Cached clone ahead of remote | Commit timeline drift | `beaver-scan update --config ...` does `git pull --ff-only` across the cache. |
 | Cache grew too large | Weekly-run default | `beaver-scan clean --config ...` nukes `.cache/`. Next run re-clones from scratch. |
@@ -161,7 +190,8 @@ PRD §6.4: `dataset.jsonl` records carry `schemaVersion`. Rules:
 
 - [ ] SSH keys on runner host; `git describe --tags` works in the Beaver repo.
 - [ ] `repositories.json` reviewed with source-of-truth team.
-- [ ] Per-repo `.beaver-scan.json` committed in every consumer (CI lint
-      optional but recommended).
+- [ ] Per-repo overrides added to `repositories.json` for repos where
+      defaults miss (most won't need any). Consumer teams don't need to
+      add anything to their own repos.
 - [ ] Cron example for weekly run (not MVP; include when Phase 2 lands).
 - [ ] Alert if scan exit code ≠ 0 for more than one consecutive run.

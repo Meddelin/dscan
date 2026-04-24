@@ -86,7 +86,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
   for (const repo of repositories) {
     const repoId = repoIdFor(repo);
     const repoRoot = await resolveRepoRoot(repo, configDir);
-    const perRepo = await loadPerRepoConfig(repoRoot);
+    const perRepo = await loadPerRepoConfig(repoRoot, repo.config);
     const resolver = await createTsResolver(repoRoot, perRepo.tsconfig);
     const localLibRegistry = await prescanLocalLibs(
       perRepo,

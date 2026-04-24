@@ -51,6 +51,13 @@ export const RepositoryEntrySchema = z.object({
   // MVP-only: when running on local fixtures, allow a pre-checked-out path
   // to skip cloning. Removed once Stage-1 clone is implemented.
   localPath: z.string().optional(),
+  /**
+   * Inline per-repo config. Takes effect when the consumer repo does not
+   * ship its own `.beaver-scan.json`. A consumer-side file, if present,
+   * wins over this override. Both are merged onto Zod defaults, so
+   * operators can keep the entry minimal.
+   */
+  config: z.unknown().optional(),
 });
 
 export type RepositoryEntry = z.infer<typeof RepositoryEntrySchema>;

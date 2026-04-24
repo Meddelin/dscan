@@ -6,7 +6,8 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 
 ## Статус
 
-**MVP, M1 landed.** Beaver prescan + real TS module resolution работают. См. [implementation/plan.md](./implementation/plan.md).
+**MVP, M1–M6a landed.** Полный pipeline + Stage 7 route resolver + invariants.
+См. [implementation/plan.md](./implementation/plan.md).
 
 | Stage | Статус |
 |-------|--------|
@@ -15,12 +16,12 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 | 3. Resolve | ✅ (TS compiler API, tsconfig paths) |
 | 4. Categorize | ✅ |
 | 5a. Beaver prescan | ✅ (git clone + re-export map depth=5) |
-| 5b. Local-lib prescan | ⏳ M3 |
+| 5b. Local-lib prescan | ✅ |
 | 6. Classify Этап A | ✅ |
-| 6. Classify Этап B | заглушка (primitive-name → shadow/possible), M2 |
-| 7. Route-Resolve | заглушка (все usage → `unsupported`), M4 |
-| 8. Aggregate | метрики A/B/C/D + 4 из 9 инвариантов |
-| HTML Viewer | hero + B/C/D |
+| 6. Classify Этап B | ✅ (6 сигналов + 3 уровня + adoption-wrapper rules) |
+| 7. Route-Resolve | ✅ (React Router v6 data-router) |
+| 8. Aggregate | метрики A/B/C/D/E + 7 из 9 инвариантов |
+| HTML Viewer | hero + B/C/D/E + shared components |
 
 ## Быстрый старт
 
@@ -43,9 +44,16 @@ BEAVER_LOCAL_PATH=./tests/fixtures/beaver-ui \
 
 ```bash
 beaver-scan run --config <path>            # полный pipeline
+beaver-scan run --config <path> --no-fail-on-invariant  # не падать на §10.1
 beaver-scan aggregate --dataset <path>     # пересчёт агрегатов
 beaver-scan viewer --aggregates <path>     # HTML из агрегатов
+beaver-scan update --config <path>         # git pull всех кэшированных репо
+beaver-scan clean --config <path>          # удалить .cache/
 ```
+
+## Per-repo config
+
+Консьюмер-репо **не обязаны** добавлять `.beaver-scan.json` — работают built-in defaults. Переопределения кладутся либо в `.beaver-scan.json` на стороне консьюмера (если они сами хотят), либо inline в `repositories.json` на стороне оператора. См. [operator-runbook.md](./docs/operator-runbook.md).
 
 ## Архитектура
 

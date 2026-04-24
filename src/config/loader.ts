@@ -70,25 +70,42 @@ export async function loadRepositoriesFile(
   return parsed.data;
 }
 
-export async function loadPerRepoConfig(repoRoot: string): Promise<PerRepoConfig> {
+/**
+ * Load per-repo config. Precedence:
+ *   1. `.beaver-scan.json` at the consumer repo root (opt-in by consumers)
+ *   2. `inlineOverride` supplied by the operator via `repositories.json`
+ *   3. Built-in Zod defaults
+ *
+ * Missing entirely is fine — the scanner uses defaults. Malformed (bad
+ * JSON / schema violation) still fails fast so operators catch typos.
+ */
+export async function loadPerRepoConfig(
+  repoRoot: string,
+  inlineOverride?: unknown,
+): Promise<PerRepoConfig> {
   const path = resolve(repoRoot, '.beaver-scan.json');
-  let text: string;
+  let fromFile: unknown = undefined;
   try {
-    text = await readFile(path, 'utf-8');
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException;
-    if (e.code === 'ENOENT') {
+    const text = await readFile(path, 'utf-8');
+    try {
+      fromFile = JSON.parse(text);
+    } catch (err) {
       throw new ConfigError(
-        `Per-repo config not found at ${path}. Each repo MUST have .beaver-scan.json (PRD §9.2).`,
+        `Per-repo config at ${path} is not valid JSON: ${(err as Error).message}`,
       );
     }
-    throw err;
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code !== 'ENOENT') throw err;
+    // File missing → fall through to override/defaults.
   }
-  const json = JSON.parse(text) as unknown;
-  const parsed = PerRepoConfigSchema.safeParse(json);
+
+  const raw = fromFile ?? inlineOverride ?? {};
+  const parsed = PerRepoConfigSchema.safeParse(raw);
   if (!parsed.success) {
+    const source = fromFile !== undefined ? path : 'repositories.json inline config';
     throw new ConfigError(
-      `Invalid per-repo config at ${path}`,
+      `Invalid per-repo config from ${source}`,
       parsed.error.format(),
     );
   }

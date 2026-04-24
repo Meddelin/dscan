@@ -18,8 +18,28 @@
 | M6b worker pool | — | deferred |
 | M7 real dry-run + FP SLA | — | blocked on SSH access |
 
-78/78 vitest specs green across 6 test files. Smoke run on 11 fixtures
+80/80 vitest specs green across 6 test files. Smoke run on 12 fixtures
 produces zero invariant violations.
+
+## Deviation from PRD §9.2 — per-repo config is optional
+
+PRD §9.2 required a `.beaver-scan.json` at every consumer repo root
+(fail-fast on missing). Pilot-operator feedback: coordinating 100 teams
+to add a config file is not feasible for a single-person launch. Status
+after commit hereafter:
+
+1. **Consumer's `.beaver-scan.json`** (at repo root) — opt-in. Wins
+   when present. Malformed still fails fast.
+2. **Inline `config` in operator-side `repositories.json`** — new field
+   on each entry; the operator captures per-repo overrides centrally.
+3. **Built-in defaults** — every field of `PerRepoConfigSchema` has a
+   Zod default; missing config is not an error.
+
+Trade-off: repos with unspecified `localLibraries` classify all local
+components as plain `local` (not `local-library`), which can skew the
+adoption ratio downward for repos that have a team UI kit the operator
+hasn't declared yet. Mitigated by progressively adding overrides to
+`repositories.json` during the pilot FP-review pass.
 
 ## Принципы
 
