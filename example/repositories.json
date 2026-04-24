@@ -48,5 +48,10 @@
     "name": "fixture-local-lib-backed",
     "gitUrl": "ssh://git@localhost/fixture-local-lib-backed.git",
     "localPath": "../tests/fixtures/fixture-local-lib-backed"
+  },
+  {
+    "name": "fixture-route-data-router",
+    "gitUrl": "ssh://git@localhost/fixture-route-data-router.git",
+    "localPath": "../tests/fixtures/fixture-route-data-router"
   }
 ]

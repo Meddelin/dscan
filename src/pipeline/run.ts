@@ -27,6 +27,8 @@ import { prescanLocalLibs } from '../prescan/local-lib.js';
 import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
 import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
 import type { SignalContext } from '../classify/signals.js';
+import { resolveRoutes } from '../route/resolve.js';
+import { normalize as normalizePath } from '../route/import-graph.js';
 
 export const SCANNER_VERSION = '0.1.0';
 
@@ -108,6 +110,30 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
       globalPrimitiveNames: config.primitiveNames ?? DEFAULT_PRIMITIVE_NAMES,
       thresholds: config.thresholds,
     });
+
+    // Stage 7: route resolution (§4.7). Opt-out via global/per-repo config;
+    // if no router config found in the repo, every usage stays `unsupported`.
+    const routeEnabled =
+      (perRepo.routeResolution?.enabled ?? config.routeResolution?.enabled ?? true) !==
+      false;
+    if (routeEnabled) {
+      const resolution = resolveRoutes({
+        parsed,
+        resolver,
+        depthLimit: config.routeResolution?.importGraphDepthLimit ?? 20,
+      });
+      if (resolution.entries.length > 0) {
+        applyRoutes(perRepoResult.usages, resolution.byFile, repoRoot);
+        applyRoutesToShadow(perRepoResult.shadowRecords, resolution.byFile, repoRoot);
+        for (const w of resolution.warnings) {
+          allWarnings.push({
+            repoId,
+            code: 'route-resolution-warning',
+            message: w,
+          });
+        }
+      }
+    }
 
     allRecords.push(...(perRepoResult.usages as UsageRecord[]));
     allRecords.push(...perRepoResult.shadowRecords);
@@ -294,6 +320,49 @@ async function classifyRepo(input: ClassifyRepoInput) {
     unresolved,
     warnings,
   };
+}
+
+function applyRoutes(
+  usages: UsageRecord[],
+  byFile: Map<string, { kind: 'bound'; path: string } | { kind: 'shared'; paths: string[] } | { kind: 'unmapped' }>,
+  repoRoot: string,
+): void {
+  for (const u of usages) {
+    const key = normalizePath(resolve(repoRoot, u.filePath));
+    assignRoute(u, byFile.get(key));
+  }
+}
+
+function applyRoutesToShadow(
+  records: Array<{ filePath: string; signals: string[] }>,
+  byFile: Map<string, { kind: 'bound'; path: string } | { kind: 'shared'; paths: string[] } | { kind: 'unmapped' }>,
+  repoRoot: string,
+): void {
+  for (const record of records) {
+    const key = normalizePath(resolve(repoRoot, record.filePath));
+    const binding = byFile.get(key);
+    if (binding?.kind === 'shared' && !record.signals.includes('multi-route')) {
+      record.signals.push('multi-route');
+    }
+  }
+}
+
+function assignRoute(
+  usage: UsageRecord,
+  binding:
+    | { kind: 'bound'; path: string }
+    | { kind: 'shared'; paths: string[] }
+    | { kind: 'unmapped' }
+    | undefined,
+): void {
+  if (!binding) return;
+  if (binding.kind === 'bound') {
+    usage.route = { kind: 'bound', path: binding.path };
+  } else if (binding.kind === 'shared') {
+    usage.route = { kind: 'shared', paths: binding.paths };
+  } else {
+    usage.route = { kind: 'unmapped' };
+  }
 }
 
 function repoIdFor(repo: RepositoryEntry): string {

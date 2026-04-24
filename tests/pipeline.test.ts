@@ -338,6 +338,57 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('fixture-route-data-router (M4 route binding)', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-route-data-router'));
+    });
+
+    it('Dashboard-page usage is bound to /dashboard', () => {
+      const dash = records.find(
+        (r) =>
+          r.filePath === 'src/pages/Dashboard.tsx' &&
+          r.componentName === 'Button',
+      );
+      expect(dash?.route).toEqual({ kind: 'bound', path: '/dashboard' });
+    });
+
+    it('Shared Header usage ends up `shared` with both paths', () => {
+      const header = records.find((r) => r.filePath === 'src/shared/Header.tsx');
+      expect(header?.route.kind).toBe('shared');
+      if (header?.route.kind === 'shared') {
+        expect(header.route.paths).toEqual(['/dashboard', '/settings']);
+      }
+    });
+
+    it('Logger (not reachable from any page) is unmapped', () => {
+      const log = records.find((r) => r.filePath === 'src/utils/Logger.tsx');
+      expect(log?.route).toEqual({ kind: 'unmapped' });
+    });
+
+    it('router.tsx own usages → bound (file is in its own reachable set)', () => {
+      const router = records.find(
+        (r) =>
+          r.filePath === 'src/router.tsx' &&
+          r.componentName === 'Dashboard',
+      );
+      // router.tsx imports Dashboard + Settings, so it's reachable from both
+      // pages and lands as `shared` with the two paths.
+      expect(router?.route.kind).toBe('shared');
+    });
+  });
+
+  describe('repos without router config stay `unsupported`', () => {
+    it('fixture-pure-adoption keeps kind=unsupported', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const { records } = await runOnFixture('fixture-pure-adoption');
+      for (const r of records) {
+        expect(r.route.kind).toBe('unsupported');
+      }
+    });
+  });
+
   describe('HTML viewer', () => {
     it('renders self-contained HTML with inlined data', () => {
       const aggregates: Aggregates = {
