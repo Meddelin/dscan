@@ -15,11 +15,62 @@
 | M4 route resolver (Stage 7) | `e43d6a9` | ✅ |
 | M5 metric E + viewer v1 + update/clean | `2993784` | ✅ |
 | M6a invariants + git clone + docs | `957b5a0` | ✅ |
+| Per-repo config optional | `79a3f7b` | ✅ |
+| Pilot fixes (parse / member-expr / wrapper / CLI / clone-repos) | `0e0a4b3` | ✅ |
 | M6b worker pool | — | deferred |
 | M7 real dry-run + FP SLA | — | blocked on SSH access |
 
-80/80 vitest specs green across 6 test files. Smoke run on 12 fixtures
+86/86 vitest specs green across 6 test files. Smoke run on 16 fixtures
 produces zero invariant violations.
+
+## Pilot-fixes (2026-04-25, commit `0e0a4b3`)
+
+After the first developer-run on real T-Bank repos, five blockers
+surfaced. Each is now fixed and regression-tested:
+
+1. **`parse-failed` storm on `.ts` files.** Parser ran with `jsx: true`
+   for every file; pure `.ts` sources misread generics like `<T>` as JSX.
+   Now `jsx` is enabled only for `.tsx`/`.jsx` extensions across
+   `parse.ts`, `prescan/beaver.ts`, `prescan/local-lib.ts`. Fixture
+   `fixture-ts-generics/` regresses generic-arrow-cast, generic
+   functions, type aliases.
+
+2. **`route-resolution-warning` lacked file path.** `RouteEntry` now
+   carries `configFilePath`/`configAbsPath`; `resolveRoutes` emits
+   structured `RouteWarning` (`{filePath, routePath, code, message}`);
+   `run.ts` populates `Warning.filePath`. Operator can navigate to the
+   offending router config file directly.
+
+3. **Member-expression JSX `<Form.Item/>` was always
+   `unresolved-dynamic`.** `readJsxTagName` now returns `{full, base}`:
+   import lookup goes via base (`Form`), full dotted form
+   (`Form.Item`) becomes `componentName`. For local member expressions,
+   the pending-profile lookup uses the last segment as `definingSymbol`.
+   §5.5 honoured. Fixture `fixture-member-expression/` covers the
+   canonical `Form.Item` pattern via a new fake `@beaver-ui/form` leaf.
+
+4. **Route-element wrapper unwrap.** `<AbilityGuard><CreateProject/></AbilityGuard>`
+   used to register the route with `pageComponentFile: null` because
+   `AbilityGuard` wasn't in-repo. `page-extract.ts` now collects every
+   JSX-identifier in the element tree (root, then descendants) and
+   `resolvePage` tries them in order, preferring the first in-repo
+   match. Fixture `fixture-route-wrapped-element/` binds
+   `CreateProject` (inside `AbilityGuard`) to `/projects/new`.
+
+5. **CLI ergonomics for the operator workflow.**
+   - Bin gains second name `ds-scanner` alongside `beaver-scan`; both
+     point at the same compiled entry, program name follows `argv[1]`.
+   - New `analyze` command: alias for `run` with sensible defaults
+     (`--config ds-scanner.config.ts`, `--output .ds-metrics/report`).
+     Adds `-o, --output <dir>` to `run` for explicit overrides.
+   - `tsx` moved from devDependencies to dependencies; loader.ts imports
+     `tsx/esm/api` on demand and registers it the first time a `.ts` /
+     `.mts` config is requested. Built CLI now reads TS configs without
+     the operator preloading anything.
+   - `scripts/clone-repos.mjs` — idempotent batch cloner that walks
+     `repositories.json`, clones each entry into `./ds-projects/<name>/`,
+     surfaces `ssh-add ~/.ssh/id_ed25519` hint on failure. Wired as
+     `npm run clone:repos`.
 
 ## Deviation from PRD §9.2 — per-repo config is optional
 
