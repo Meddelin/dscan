@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { extname, join, resolve as resolvePath } from 'node:path';
 import { parse, type TSESTree } from '@typescript-eslint/typescript-estree';
+const JSX_EXT = new Set(['.tsx', '.jsx']);
 import type { PerRepoConfig } from '../config/schema.js';
 import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
 import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
@@ -78,7 +79,10 @@ async function scanLibrary(
     if (raw === null) continue;
     let ast: TSESTree.Program;
     try {
-      ast = parse(raw, { loc: true, jsx: true });
+      ast = parse(raw, {
+        loc: true,
+        jsx: JSX_EXT.has(extname(absPath).toLowerCase()),
+      });
     } catch {
       continue;
     }

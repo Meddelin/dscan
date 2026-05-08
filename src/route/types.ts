@@ -17,6 +17,10 @@ export interface DiscoveredRouteConfig {
 export interface RouteEntry {
   /** Full joined path, e.g. `/checkout/payment`. Leading slash normalised. */
   path: string;
+  /** Repo-relative path of the file that hosts this route entry. */
+  configFilePath: string;
+  /** Absolute path of the file that hosts this route entry. */
+  configAbsPath: string;
   /**
    * Absolute path to the file defining the page component.
    * Null when `element`/`lazy`/`Component` can't be statically resolved
@@ -34,13 +38,24 @@ export interface RouteEntry {
   warnings: string[];
 }
 
+export interface RouteWarning {
+  /** Repo-relative path of the route-config file that emitted this warning. */
+  filePath: string;
+  /** Joined route path, if applicable (else empty string). */
+  routePath: string;
+  /** Short, machine-style code (e.g. "page-not-imported", "dynamic-path-skipped"). */
+  code: string;
+  /** Human-readable detail. */
+  message: string;
+}
+
 export interface RouteResolution {
   /** Map: absolute file path → its route binding. Forward-slashed, lowercased. */
   byFile: Map<string, FileRouteBinding>;
   /** All discovered routes (diagnostic; not required for binding). */
   entries: RouteEntry[];
-  /** Non-fatal warnings emitted during resolution. */
-  warnings: string[];
+  /** Non-fatal warnings emitted during resolution, with full file context. */
+  warnings: RouteWarning[];
 }
 
 export type FileRouteBinding =

@@ -11,43 +11,80 @@ import { ConfigError, loadGlobalConfig } from './config/loader.js';
 import { gitPull, isGitRepo } from './ops/git.js';
 
 const program = new Command();
-program.name('beaver-scan').version(SCANNER_VERSION);
+// The bin entry registers both `beaver-scan` and `ds-scanner`. argv[1]
+// resolves to whichever the user invoked; pick that as the displayed name.
+const invokedAs = (process.argv[1] ?? '').includes('ds-scanner')
+  ? 'ds-scanner'
+  : 'beaver-scan';
+program.name(invokedAs).version(SCANNER_VERSION);
+
+async function executeRun(opts: {
+  config: string;
+  output?: string;
+  failOnInvariant: boolean;
+}) {
+  const runOpts: { configPath: string; outputDir?: string } = {
+    configPath: opts.config,
+  };
+  if (opts.output) runOpts.outputDir = opts.output;
+  const result = await runScan(runOpts);
+  process.stdout.write(
+    `Scanned ${result.stats.reposScanned} repos · ${result.stats.filesScanned} files · ` +
+      `${result.stats.usages} usages (${result.stats.unresolved} unresolved) · ` +
+      `${result.stats.warnings} warnings · ${result.stats.durationMs}ms\n`,
+  );
+  process.stdout.write(`dataset:    ${result.datasetPath}\n`);
+  process.stdout.write(`aggregates: ${result.aggregatesPath}\n`);
+  if (result.reportPath) process.stdout.write(`report:     ${result.reportPath}\n`);
+
+  if (opts.failOnInvariant) {
+    const text = await readFile(result.aggregatesPath, 'utf-8');
+    const agg = JSON.parse(text) as Aggregates;
+    if (agg.invariants.failed > 0) {
+      process.stderr.write(
+        `Invariant violations (${agg.invariants.failed}):\n`,
+      );
+      for (const v of agg.invariants.violations) {
+        process.stderr.write(`  ${v.code} × ${v.count} — ${v.message}\n`);
+      }
+      process.exit(3);
+    }
+  }
+}
 
 program
   .command('run')
   .description('Run full pipeline: scan → dataset.jsonl + aggregates.json + report.html')
   .requiredOption('-c, --config <path>', 'path to global config (.ts/.js/.json)')
+  .option('-o, --output <dir>', 'override output.dir from config')
   .option('--no-fail-on-invariant', 'do not exit 3 when domain invariants fail (§10.1)')
-  .action(async (opts: { config: string; failOnInvariant: boolean }) => {
-    try {
-      const result = await runScan({ configPath: opts.config });
-      process.stdout.write(
-        `Scanned ${result.stats.reposScanned} repos · ${result.stats.filesScanned} files · ` +
-          `${result.stats.usages} usages (${result.stats.unresolved} unresolved) · ` +
-          `${result.stats.warnings} warnings · ${result.stats.durationMs}ms\n`,
-      );
-      process.stdout.write(`dataset:    ${result.datasetPath}\n`);
-      process.stdout.write(`aggregates: ${result.aggregatesPath}\n`);
-      if (result.reportPath) process.stdout.write(`report:     ${result.reportPath}\n`);
-
-      // Read aggregates and enforce invariants unless the user opted out.
-      if (opts.failOnInvariant) {
-        const text = await readFile(result.aggregatesPath, 'utf-8');
-        const agg = JSON.parse(text) as Aggregates;
-        if (agg.invariants.failed > 0) {
-          process.stderr.write(
-            `Invariant violations (${agg.invariants.failed}):\n`,
-          );
-          for (const v of agg.invariants.violations) {
-            process.stderr.write(`  ${v.code} × ${v.count} — ${v.message}\n`);
-          }
-          process.exit(3);
-        }
+  .action(
+    async (opts: { config: string; output?: string; failOnInvariant: boolean }) => {
+      try {
+        await executeRun(opts);
+      } catch (err) {
+        handleFatal(err);
       }
-    } catch (err) {
-      handleFatal(err);
-    }
-  });
+    },
+  );
+
+// `analyze` is the operator-facing alias for `run` per the runbook
+// (`npx ds-scanner analyze --output .ds-metrics/report`).
+program
+  .command('analyze')
+  .description('Alias for `run` with explicit --output (operator workflow)')
+  .option('-c, --config <path>', 'path to global config', 'ds-scanner.config.ts')
+  .option('-o, --output <dir>', 'output directory for artefacts', '.ds-metrics/report')
+  .option('--no-fail-on-invariant', 'do not exit 3 when domain invariants fail')
+  .action(
+    async (opts: { config: string; output: string; failOnInvariant: boolean }) => {
+      try {
+        await executeRun(opts);
+      } catch (err) {
+        handleFatal(err);
+      }
+    },
+  );
 
 program
   .command('aggregate')

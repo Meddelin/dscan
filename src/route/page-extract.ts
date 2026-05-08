@@ -90,6 +90,8 @@ function walk(
   if (!pathIsDynamic) {
     out.push({
       path: joinedPath,
+      configFilePath: file.file.relPath,
+      configAbsPath: file.file.absPath,
       pageComponentFile,
       pageComponentSymbol,
       warnings,
@@ -105,32 +107,73 @@ function walk(
 }
 
 type PageSpec =
+  /**
+   * Candidates ordered by preference. We try them in sequence and pick the
+   * first that resolves in-repo — this is how we "unwrap" external guards
+   * around a local page (`<AbilityGuard><CreateProject/></AbilityGuard>`):
+   * the JSX walker collects identifiers from the wrapper down to its
+   * children, and resolvePage picks the first one that lives in the repo.
+   */
   | { kind: 'none' }
-  | { kind: 'jsx-identifier'; name: string }
+  | { kind: 'jsx-candidates'; names: string[] }
   | { kind: 'identifier'; name: string }
   | { kind: 'lazy-import'; importSource: string }
   | { kind: 'dynamic'; reason: string };
 
 function readElement(value: TSESTree.Node): PageSpec {
   if (value.type === 'JSXElement') {
-    const name = value.openingElement.name;
-    if (name.type === 'JSXIdentifier') {
-      return { kind: 'jsx-identifier', name: name.name };
+    const candidates = collectJsxCandidates(value);
+    if (candidates.length === 0) {
+      return { kind: 'dynamic', reason: 'jsx-member-or-namespace' };
     }
-    return { kind: 'dynamic', reason: 'jsx-member-or-namespace' };
+    return { kind: 'jsx-candidates', names: candidates };
   }
   if (value.type === 'Identifier') {
     return { kind: 'identifier', name: value.name };
   }
   if (value.type === 'ConditionalExpression') {
-    // Branch enumeration lives in a dedicated M4 follow-up; for now we
-    // register the route without a page component and warn.
     return { kind: 'dynamic', reason: 'conditional-element' };
   }
   if (value.type === 'CallExpression') {
     return { kind: 'dynamic', reason: 'hoc-wrapped-element' };
   }
   return { kind: 'dynamic', reason: 'unknown-element-form' };
+}
+
+/**
+ * Walk a JSXElement tree top-down, collecting identifier-named tags.
+ * Order: parent first, then children left-to-right.
+ *   `<AbilityGuard><CreateProject/></AbilityGuard>` →
+ *   ['AbilityGuard', 'CreateProject'].
+ * resolvePage prefers the first one that resolves in-repo, so a local
+ * `CreateProject` correctly wins over an external `AbilityGuard`.
+ *
+ * Member-expression and namespaced tags are skipped — they need their
+ * own resolution path (§5.5).
+ */
+function collectJsxCandidates(root: TSESTree.JSXElement): string[] {
+  const out: string[] = [];
+  const stack: TSESTree.JSXElement[] = [root];
+  while (stack.length > 0) {
+    const node = stack.shift()!;
+    const tag = node.openingElement.name;
+    if (tag.type === 'JSXIdentifier' && /^[A-Z]/.test(tag.name)) {
+      out.push(tag.name);
+    }
+    for (const child of node.children) {
+      if (child.type === 'JSXElement') {
+        stack.push(child);
+      } else if (child.type === 'JSXExpressionContainer') {
+        // `{condition && <Page/>}` and similar — recurse.
+        const expr = child.expression;
+        if (expr.type === 'JSXElement') stack.push(expr);
+        else if (expr.type === 'LogicalExpression' && expr.right.type === 'JSXElement') {
+          stack.push(expr.right);
+        }
+      }
+    }
+  }
+  return out;
 }
 
 function readLazy(value: TSESTree.Node): PageSpec {
@@ -191,15 +234,44 @@ function resolvePage(
     }
     return { file: null, symbol: null, warning: 'lazy-import-not-in-repo' };
   }
-  // identifier / jsx-identifier — look up the binding in the file's imports.
-  const symbol = spec.name;
+  if (spec.kind === 'identifier') {
+    return resolveIdentifierCandidate(spec.name, file, resolver);
+  }
+  // jsx-candidates: try each in order, preferring in-repo resolutions over
+  // external ones. This is what unwraps `<Guard><Page/></Guard>` correctly.
+  let firstWarning: string | undefined;
+  for (const name of spec.names) {
+    const r = resolveIdentifierCandidate(name, file, resolver);
+    if (r.file !== null) return r;
+    if (firstWarning === undefined && r.warning) {
+      firstWarning = r.warning;
+    }
+  }
+  return {
+    file: null,
+    symbol: null,
+    warning: firstWarning ?? 'no-jsx-candidate-resolved',
+  };
+}
+
+function resolveIdentifierCandidate(
+  symbol: string,
+  file: ParsedFile,
+  resolver: TsResolver,
+): { file: string | null; symbol: string | null; warning?: string } {
   const binding = findImportBinding(file, symbol);
-  if (!binding) return { file: null, symbol, warning: 'page-not-imported' };
+  if (!binding) {
+    return { file: null, symbol, warning: `page-not-imported:${symbol}` };
+  }
   const resolved = resolver.resolve(binding.source, file.file.absPath);
   if (resolved.kind === 'in-repo') {
     return { file: resolved.absPath, symbol: binding.imported ?? symbol };
   }
-  return { file: null, symbol, warning: 'page-import-not-in-repo' };
+  return {
+    file: null,
+    symbol,
+    warning: `page-import-not-in-repo:${symbol} from ${binding.source}`,
+  };
 }
 
 function findImportBinding(

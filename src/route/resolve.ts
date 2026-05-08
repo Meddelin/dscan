@@ -3,7 +3,7 @@ import type { TsResolver } from '../resolve/ts-resolver.js';
 import { discoverRouteConfigs, type DiscoveredConfigSite } from './discovery.js';
 import { extractRoutes } from './page-extract.js';
 import { ImportGraph, normalize } from './import-graph.js';
-import type { FileRouteBinding, RouteResolution } from './types.js';
+import type { FileRouteBinding, RouteResolution, RouteWarning } from './types.js';
 
 export interface ResolveRoutesInput {
   parsed: ParsedFile[];
@@ -26,9 +26,18 @@ export function resolveRoutes(input: ResolveRoutesInput): RouteResolution {
   }
 
   const entries = extractRoutes(sites, input.resolver);
-  const warnings: string[] = [];
+  const warnings: RouteWarning[] = [];
   for (const e of entries) {
-    for (const w of e.warnings) warnings.push(`${e.path}: ${w}`);
+    for (const w of e.warnings) {
+      const colonIdx = w.indexOf(':');
+      const code = colonIdx === -1 ? w : w.slice(0, colonIdx);
+      warnings.push({
+        filePath: e.configFilePath,
+        routePath: e.path,
+        code,
+        message: w,
+      });
+    }
   }
 
   const graph = new ImportGraph(input.parsed, input.resolver, input.depthLimit);

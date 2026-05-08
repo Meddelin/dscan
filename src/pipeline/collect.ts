@@ -96,8 +96,8 @@ export function collectUsages(ctx: CollectContext): CollectResult {
   const warnings: Warning[] = [];
 
   walkJsx(ctx.parsed.ast, (element) => {
-    const componentName = readJsxTagName(element.name);
-    if (componentName === null) {
+    const tag = readJsxTagName(element.name);
+    if (tag === null) {
       unresolved.push({
         schemaVersion: SCHEMA_VERSION,
         kind: 'unresolved-dynamic',
@@ -112,6 +112,7 @@ export function collectUsages(ctx: CollectContext): CollectResult {
       return;
     }
 
+    const componentName = tag.full;
     const partial: UsagePartial = {
       repoId: ctx.parsed.file.repoId,
       filePath: ctx.parsed.file.relPath,
@@ -133,7 +134,10 @@ export function collectUsages(ctx: CollectContext): CollectResult {
       return;
     }
 
-    const binding = imports.get(componentName) ?? null;
+    // Look up by the BASE identifier — `<Form.Item/>` resolves through
+    // `Form`'s import binding (§5.5).
+    const binding = imports.get(tag.base) ?? null;
+    const isMember = tag.full !== tag.base;
 
     // Priority 1: Beaver (canonicalized).
     if (binding) {
@@ -208,6 +212,9 @@ export function collectUsages(ctx: CollectContext): CollectResult {
           pending: buildPending(ctx, resolved, binding, localPartial, {
             localLibId: null,
             localLibKind: null,
+            // For member expressions like `<NS.Comp/>` the profile we want
+            // lives at (importedFile, "Comp"), not (importedFile, "NS").
+            symbolOverride: isMember ? lastSegment(tag.full) : null,
           }),
         });
         return;
@@ -226,6 +233,7 @@ export function collectUsages(ctx: CollectContext): CollectResult {
           pending: buildPending(ctx, resolved, binding, localPartial, {
             localLibId: null,
             localLibKind: null,
+            symbolOverride: isMember ? lastSegment(tag.full) : null,
           }),
         });
         return;
@@ -268,20 +276,30 @@ function buildPending(
   resolved: ReturnType<TsResolver['resolve']>,
   binding: ImportBinding,
   partial: UsagePartial,
-  lib: { localLibId: string | null; localLibKind: 'partially-beaver-backed' | 'fully-custom' | null },
+  lib: {
+    localLibId: string | null;
+    localLibKind: 'partially-beaver-backed' | 'fully-custom' | null;
+    symbolOverride?: string | null;
+  },
 ): PendingUsage {
   const definingAbsPath =
     resolved.kind === 'in-repo' ? resolved.absPath : ctx.parsed.file.absPath;
-  const definingSymbol = binding.importedName ?? binding.localName;
+  const definingSymbol =
+    lib.symbolOverride ?? binding.importedName ?? binding.localName;
   return {
     importerAbsPath: ctx.parsed.file.absPath,
     definingAbsPath,
     definingSymbol,
-    componentName: binding.localName,
+    componentName: partial.componentName,
     partial,
     localLibId: lib.localLibId,
     localLibKind: lib.localLibKind,
   };
+}
+
+function lastSegment(dotted: string): string {
+  const idx = dotted.lastIndexOf('.');
+  return idx === -1 ? dotted : dotted.slice(idx + 1);
 }
 
 function finalize(
@@ -410,10 +428,33 @@ function pushChildren(node: TSESTree.Node, stack: TSESTree.Node[]): void {
   }
 }
 
-function readJsxTagName(name: TSESTree.JSXTagNameExpression): string | null {
-  if (name.type === 'JSXIdentifier') return name.name;
+/**
+ * §5.5 — JSX member expressions like `<Form.Item/>` or `<NS.Sub.X/>`.
+ * Returns:
+ *   - `full`: dotted/joined display name (`Form.Item`, `NS.Sub.X`,
+ *     `svg:path` for namespaced).
+ *   - `base`: the leftmost identifier — what we look up in the file's
+ *     ImportDeclarations to determine origin.
+ */
+function readJsxTagName(
+  name: TSESTree.JSXTagNameExpression,
+): { full: string; base: string } | null {
+  if (name.type === 'JSXIdentifier') {
+    return { full: name.name, base: name.name };
+  }
   if (name.type === 'JSXNamespacedName') {
-    return `${name.namespace.name}:${name.name.name}`;
+    return {
+      full: `${name.namespace.name}:${name.name.name}`,
+      base: name.namespace.name,
+    };
+  }
+  if (name.type === 'JSXMemberExpression') {
+    const left = readJsxTagName(name.object);
+    if (!left) return null;
+    return {
+      full: `${left.full}.${name.property.name}`,
+      base: left.base,
+    };
   }
   return null;
 }

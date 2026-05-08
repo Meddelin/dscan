@@ -29,11 +29,35 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 npm install
 npm run typecheck
 npm test
+```
 
-# Прогон на fixture-репо. BEAVER_LOCAL_PATH обходит git clone для локальных прогонов.
+### Локальный прогон на фикстурах (без T-Bank доступа)
+
+```bash
 BEAVER_LOCAL_PATH=./tests/fixtures/beaver-ui \
   npm run dev -- run --config ./example/.beaver-scan.config.ts
 ```
+
+`npm run dev` запускает CLI через `tsx`, который умеет грузить `.ts`-конфиги «на лету».
+
+### Реальный прогон на T-Bank репо
+
+```bash
+# 1. SSH-ключ должен быть в агенте — иначе клонирование упадёт.
+ssh-add ~/.ssh/id_ed25519
+
+# 2. Клонировать все репо из repositories.json в ./ds-projects/
+node scripts/clone-repos.mjs
+
+# 3. Собрать и запустить
+npm run build
+npx ds-scanner analyze --output .ds-metrics/report
+# или:  npx ds-scanner analyze --config ds-scanner.config.ts --output .ds-metrics/report
+```
+
+После сборки скомпилированный CLI всё ещё умеет читать `.ts`-конфиги — он
+сам подгрузит `tsx/esm/api` register по необходимости. То есть собранный
+бинарник работает с тем же `ds-scanner.config.ts`, что и dev-режим.
 
 Артефакты пишутся в `./results/`:
 - `dataset.jsonl` — instance-level записи
@@ -42,14 +66,20 @@ BEAVER_LOCAL_PATH=./tests/fixtures/beaver-ui \
 
 ## CLI
 
+Бинарник доступен под двумя именами: `ds-scanner` и `beaver-scan` — это один и тот же исполняемый файл.
+
 ```bash
-beaver-scan run --config <path>            # полный pipeline
-beaver-scan run --config <path> --no-fail-on-invariant  # не падать на §10.1
-beaver-scan aggregate --dataset <path>     # пересчёт агрегатов
-beaver-scan viewer --aggregates <path>     # HTML из агрегатов
-beaver-scan update --config <path>         # git pull всех кэшированных репо
-beaver-scan clean --config <path>          # удалить .cache/
+ds-scanner analyze --output <dir>           # operator-friendly: scan + write to <dir>
+ds-scanner analyze --config <path> --output <dir>
+ds-scanner run --config <path>              # явный run
+ds-scanner run --config <path> --no-fail-on-invariant
+ds-scanner aggregate --dataset <path> --out <dir>
+ds-scanner viewer --aggregates <path> --out <path>
+ds-scanner update --config <path>           # git pull всех кэшированных репо
+ds-scanner clean --config <path>            # удалить .cache/
 ```
+
+`analyze` — алиас `run` с дефолтами `--config ds-scanner.config.ts` и `--output .ds-metrics/report`. Удобен для оператора.
 
 ## Per-repo config
 

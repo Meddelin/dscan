@@ -407,6 +407,87 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('parser respects file extension (no jsx for .ts)', () => {
+    it('TS-only files with generics parse without `parse-failed`', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const dir = await scratchConfigDir();
+      const cfgPath = await writeConfigs(dir, [
+        {
+          name: 'fixture-ts-generics',
+          localPath: join(FIXTURE_ROOT, 'fixture-ts-generics'),
+        },
+      ]);
+      const result = await runScan({ configPath: cfgPath });
+      const warningsPath = join(dirname(result.aggregatesPath), 'warnings.json');
+      const warnings = JSON.parse(await readFile(warningsPath, 'utf-8')) as Array<{
+        code: string;
+      }>;
+      const parseFailures = warnings.filter((w) => w.code === 'parse-failed');
+      expect(parseFailures).toEqual([]);
+    });
+  });
+
+  describe('member-expression JSX (§5.5)', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-member-expression'));
+    });
+
+    it('classifies <Form/> as Beaver direct', () => {
+      const root = records.find((r) => r.componentName === 'Form');
+      expect(root?.category).toBe('beaver');
+      expect(root?.beaverPackage).toBe('@beaver-ui/form');
+    });
+
+    it('classifies <Form.Item/> as Beaver direct (canonicalised on the base package)', () => {
+      const item = records.find((r) => r.componentName === 'Form.Item');
+      expect(item).toBeDefined();
+      expect(item?.category).toBe('beaver');
+      expect(item?.beaverPackage).toBe('@beaver-ui/form');
+    });
+
+    it('classifies <Form.Section/> the same way', () => {
+      const section = records.find((r) => r.componentName === 'Form.Section');
+      expect(section?.category).toBe('beaver');
+    });
+
+    it('does NOT emit unresolved-dynamic for member expressions on Beaver', async () => {
+      const dataset = await readJsonl(
+        join(
+          dirname((await runOnFixture('fixture-member-expression')).result.aggregatesPath),
+          'dataset.jsonl',
+        ),
+      );
+      const unresolved = dataset.filter(
+        (r) =>
+          r.kind === 'unresolved-dynamic' &&
+          r.repoId === 'fixture-member-expression',
+      );
+      expect(unresolved).toEqual([]);
+    });
+  });
+
+  describe('route resolver unwraps external wrappers around local pages', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-route-wrapped-element'));
+    });
+
+    it('binds CreateProject (inside <AbilityGuard>) to /projects/new', () => {
+      const cp = records.find(
+        (r) =>
+          r.filePath === 'src/pages/CreateProject.tsx' &&
+          r.componentName === 'Button',
+      );
+      expect(cp?.route).toEqual({
+        kind: 'bound',
+        path: '/projects/new',
+      });
+    });
+  });
+
   describe('per-repo config is optional (no .beaver-scan.json)', () => {
     it('fixture-no-config scans using built-in defaults', async () => {
       process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;

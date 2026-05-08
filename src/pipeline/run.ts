@@ -45,6 +45,11 @@ const DEFAULT_PRIMITIVE_NAMES = [
 
 export interface RunOptions {
   configPath: string;
+  /**
+   * Override `output.dir` from the config — used by `ds-scanner analyze
+   * --output <dir>`. Resolved relative to CWD when not absolute.
+   */
+  outputDir?: string;
 }
 
 export interface RunResult {
@@ -68,9 +73,10 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
   const { config, configDir } = await loadGlobalConfig(opts.configPath);
   const repositories = await loadRepositoriesFile(config, configDir);
 
-  const outputDir = isAbsolute(config.output.dir)
-    ? config.output.dir
-    : resolve(configDir, config.output.dir);
+  const rawOutput = opts.outputDir ?? config.output.dir;
+  const outputDir = isAbsolute(rawOutput)
+    ? rawOutput
+    : resolve(opts.outputDir ? process.cwd() : configDir, rawOutput);
   await mkdir(outputDir, { recursive: true });
 
   const cacheDir = resolve(configDir, '.cache/beaver-ui');
@@ -129,8 +135,9 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
         for (const w of resolution.warnings) {
           allWarnings.push({
             repoId,
+            filePath: w.filePath,
             code: 'route-resolution-warning',
-            message: w,
+            message: `[${w.code}] route ${w.routePath}: ${w.message}`,
           });
         }
       }

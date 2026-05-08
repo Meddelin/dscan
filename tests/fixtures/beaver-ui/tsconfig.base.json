@@ -9,7 +9,8 @@
       "@beaver-ui/button": ["packages/button/src/index.ts"],
       "@beaver-ui/side-navigation": ["packages/side-navigation/src/index.ts"],
       "@beaver-ui/subheader": ["packages/subheader/src/index.ts"],
-      "@beaver-ui/components": ["packages/components/src/index.ts"]
+      "@beaver-ui/components": ["packages/components/src/index.ts"],
+      "@beaver-ui/form": ["packages/form/src/index.ts"]
     }
   }
 }

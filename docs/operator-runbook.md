@@ -12,8 +12,15 @@ production runner (Phase 2) are out of scope.
 2. **SSH access** to self-hosted GitLab (`gitlab.tbank.ru`), with keys loaded
    into the local agent. The scanner runs `git clone --depth=1
    --single-branch` under the hood — any SSH error surfaces verbatim.
+
+   ```bash
+   # If you skipped Keychain / Credential Manager, load the key into the
+   # agent for this shell session:
+   ssh-add ~/.ssh/id_ed25519
+   ```
+
 3. **Network** to Beaver repo + every consumer repo.
-4. **Disk**: ~5–10 GB free for `.cache/` on first full scan (100 repos
+4. **Disk**: ~5–10 GB free for `ds-projects/` on first full scan (100 repos
    shallow-cloned).
 
 ## One-time setup
@@ -94,9 +101,22 @@ typos shouldn't silently fall through.
 
 Run on 5–10 repos first. Expect 1–5 minutes end-to-end.
 
+Two equivalent ways to invoke:
+
 ```bash
-npx beaver-scan run --config ./.beaver-scan.config.ts
+# Dev mode — no build step, .ts config loads via tsx automatically.
+npm run dev -- run --config ./ds-scanner.config.ts
+
+# Built CLI (preferred for production runner). The compiled bin still
+# accepts .ts configs; tsx is registered on demand.
+npm run build
+node scripts/clone-repos.mjs                 # clone consumer repos to ./ds-projects/
+npx ds-scanner analyze --output .ds-metrics/report
 ```
+
+`analyze` defaults to `--config ds-scanner.config.ts` and `--output
+.ds-metrics/report`. Use `run` instead when you want the config-driven
+output directory or different flags.
 
 Output:
 - `./results/dataset.jsonl` — instance-level records (one per JSX usage)
@@ -140,8 +160,8 @@ After the pilot scan:
 Once FP-rate is acceptable:
 
 ```bash
-npx beaver-scan update --config ./.beaver-scan.config.ts   # git pull caches
-npx beaver-scan run --config ./.beaver-scan.config.ts
+node scripts/clone-repos.mjs                                # idempotent — skips existing
+npx ds-scanner analyze --config ds-scanner.config.ts --output .ds-metrics/report
 ```
 
 Expected duration on an average workstation: **10–30 minutes** (SLA target

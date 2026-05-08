@@ -16,6 +16,7 @@ describe('Beaver prescan', () => {
     expect([...registry.packages].sort()).toEqual([
       '@beaver-ui/button',
       '@beaver-ui/components',
+      '@beaver-ui/form',
       '@beaver-ui/side-navigation',
       '@beaver-ui/subheader',
     ]);

@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { dirname, join, resolve as resolvePath } from 'node:path';
+import { dirname, extname, join, resolve as resolvePath } from 'node:path';
 import { parse, type TSESTree } from '@typescript-eslint/typescript-estree';
 import type { BeaverRegistry, ReExportEntry } from '../types/prescan.js';
 import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
@@ -48,7 +48,11 @@ export async function prescanBeaver(
     }
     try {
       const source = await readFile(entryFile, 'utf-8');
-      const ast = parse(source, { loc: true, jsx: true });
+      const ext = extname(entryFile).toLowerCase();
+      const ast = parse(source, {
+        loc: true,
+        jsx: ext === '.tsx' || ext === '.jsx',
+      });
       const parsed = parseEntryFile(
         ast,
         entryFile,

@@ -58,5 +58,20 @@
     "name": "fixture-no-config",
     "gitUrl": "ssh://git@localhost/fixture-no-config.git",
     "localPath": "../tests/fixtures/fixture-no-config"
+  },
+  {
+    "name": "fixture-ts-generics",
+    "gitUrl": "ssh://git@localhost/fixture-ts-generics.git",
+    "localPath": "../tests/fixtures/fixture-ts-generics"
+  },
+  {
+    "name": "fixture-member-expression",
+    "gitUrl": "ssh://git@localhost/fixture-member-expression.git",
+    "localPath": "../tests/fixtures/fixture-member-expression"
+  },
+  {
+    "name": "fixture-route-wrapped-element",
+    "gitUrl": "ssh://git@localhost/fixture-route-wrapped-element.git",
+    "localPath": "../tests/fixtures/fixture-route-wrapped-element"
   }
 ]

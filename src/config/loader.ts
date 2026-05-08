@@ -21,9 +21,13 @@ export class ConfigError extends Error {
 }
 
 /**
- * Load global config. Supports .ts/.js/.mjs/.cjs (via dynamic import) and .json.
- * TS files are loaded through tsx at runtime (see cli.ts preload).
+ * Load global config. Supports `.json` (parsed directly), `.js/.mjs/.cjs`
+ * (via dynamic import), and `.ts/.mts` (via on-demand tsx ESM register —
+ * works under compiled `node dist/cli.js` without requiring the user to
+ * preload tsx themselves).
  */
+let tsxRegistered = false;
+
 export async function loadGlobalConfig(configPath: string): Promise<{
   config: GlobalConfig;
   configDir: string;
@@ -36,6 +40,20 @@ export async function loadGlobalConfig(configPath: string): Promise<{
     const text = await readFile(abs, 'utf-8');
     raw = JSON.parse(text);
   } else {
+    if ((abs.endsWith('.ts') || abs.endsWith('.mts')) && !tsxRegistered) {
+      try {
+        // tsx exposes a programmatic ESM register for transforming TS-on-import.
+        const tsx = (await import('tsx/esm/api')) as { register: () => unknown };
+        tsx.register();
+        tsxRegistered = true;
+      } catch (err) {
+        throw new ConfigError(
+          `Cannot load TypeScript config ${abs}: tsx is not available. ` +
+            `Install tsx (npm i tsx) or convert the config to .json/.mjs. ` +
+            `Underlying error: ${(err as Error).message}`,
+        );
+      }
+    }
     const mod = await import(pathToFileURL(abs).href);
     raw = (mod as { default?: unknown }).default ?? mod;
   }
