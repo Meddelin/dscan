@@ -140,40 +140,68 @@ function readElement(value: TSESTree.Node): PageSpec {
   return { kind: 'dynamic', reason: 'unknown-element-form' };
 }
 
+const JSX_TREE_DEPTH_LIMIT = 5;
+
 /**
- * Walk a JSXElement tree top-down, collecting identifier-named tags.
- * Order: parent first, then children left-to-right.
+ * Walk a JSXElement tree top-down, collecting tags.
+ * Order: parent first, then children left-to-right (BFS).
  *   `<AbilityGuard><CreateProject/></AbilityGuard>` →
  *   ['AbilityGuard', 'CreateProject'].
- * resolvePage prefers the first one that resolves in-repo, so a local
- * `CreateProject` correctly wins over an external `AbilityGuard`.
+ *   `<AbilityGuard><Pages.BuildInfra/></AbilityGuard>` →
+ *   ['AbilityGuard', 'Pages.BuildInfra'].
+ * `resolvePage` prefers the first one that resolves in-repo, so a local
+ * `CreateProject` / member-expr child correctly wins over an external
+ * `AbilityGuard` wrapper.
  *
- * Member-expression and namespaced tags are skipped — they need their
- * own resolution path (§5.5).
+ * Member-expression tags (`Pages.Sub.Comp`) are emitted as a dotted
+ * string — `resolvePageCandidate` splits on `.` to look up the base
+ * binding and then descends. Tree depth capped at 5 (§4.7.3 / PF2.5).
  */
 function collectJsxCandidates(root: TSESTree.JSXElement): string[] {
   const out: string[] = [];
-  const stack: TSESTree.JSXElement[] = [root];
+  const stack: Array<{ node: TSESTree.JSXElement; depth: number }> = [
+    { node: root, depth: 0 },
+  ];
   while (stack.length > 0) {
-    const node = stack.shift()!;
+    const { node, depth } = stack.shift()!;
+    if (depth > JSX_TREE_DEPTH_LIMIT) continue;
     const tag = node.openingElement.name;
-    if (tag.type === 'JSXIdentifier' && /^[A-Z]/.test(tag.name)) {
-      out.push(tag.name);
+    const dotted = readJsxTagDotted(tag);
+    if (dotted && /^[A-Z]/.test(dotted)) {
+      out.push(dotted);
     }
     for (const child of node.children) {
       if (child.type === 'JSXElement') {
-        stack.push(child);
+        stack.push({ node: child, depth: depth + 1 });
       } else if (child.type === 'JSXExpressionContainer') {
         // `{condition && <Page/>}` and similar — recurse.
         const expr = child.expression;
-        if (expr.type === 'JSXElement') stack.push(expr);
-        else if (expr.type === 'LogicalExpression' && expr.right.type === 'JSXElement') {
-          stack.push(expr.right);
+        if (expr.type === 'JSXElement') {
+          stack.push({ node: expr, depth: depth + 1 });
+        } else if (
+          expr.type === 'LogicalExpression' &&
+          expr.right.type === 'JSXElement'
+        ) {
+          stack.push({ node: expr.right, depth: depth + 1 });
         }
       }
     }
   }
   return out;
+}
+
+/**
+ * Render a JSX tag as a dotted identifier name. Returns null for tags we
+ * can't statically name (computed attributes, namespaced HTML-like tags).
+ */
+function readJsxTagDotted(name: TSESTree.JSXTagNameExpression): string | null {
+  if (name.type === 'JSXIdentifier') return name.name;
+  if (name.type === 'JSXMemberExpression') {
+    const left = readJsxTagDotted(name.object);
+    if (!left) return null;
+    return `${left}.${name.property.name}`;
+  }
+  return null;
 }
 
 function readLazy(value: TSESTree.Node): PageSpec {
@@ -255,22 +283,42 @@ function resolvePage(
 }
 
 function resolveIdentifierCandidate(
-  symbol: string,
+  dotted: string,
   file: ParsedFile,
   resolver: TsResolver,
 ): { file: string | null; symbol: string | null; warning?: string } {
-  const binding = findImportBinding(file, symbol);
+  // For member expressions (`Pages.MobileBuilds`), the import-binding lookup
+  // uses the base identifier; the rest of the dotted chain is positional info
+  // for diagnostics. The reachable set from the resolved file already includes
+  // its re-exports, so binding to that file is sufficient — finer-grained
+  // member resolution (cross-file chains) is a v2 refinement.
+  const dotIdx = dotted.indexOf('.');
+  const base = dotIdx === -1 ? dotted : dotted.slice(0, dotIdx);
+  const isMember = dotIdx !== -1;
+
+  const binding = findImportBinding(file, base);
   if (!binding) {
-    return { file: null, symbol, warning: `page-not-imported:${symbol}` };
+    return {
+      file: null,
+      symbol: dotted,
+      warning: isMember
+        ? `jsx-member-base-not-imported:${base} (in tag <${dotted}/>)`
+        : `page-not-imported:${dotted}`,
+    };
   }
   const resolved = resolver.resolve(binding.source, file.file.absPath);
   if (resolved.kind === 'in-repo') {
-    return { file: resolved.absPath, symbol: binding.imported ?? symbol };
+    return {
+      file: resolved.absPath,
+      symbol: isMember ? dotted : binding.imported ?? dotted,
+    };
   }
   return {
     file: null,
-    symbol,
-    warning: `page-import-not-in-repo:${symbol} from ${binding.source}`,
+    symbol: dotted,
+    warning: isMember
+      ? `jsx-member-unresolved:${dotted} (base ${base} from ${binding.source})`
+      : `page-import-not-in-repo:${dotted} from ${binding.source}`,
   };
 }
 

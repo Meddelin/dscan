@@ -614,6 +614,66 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('route resolver — JSX member expressions (PF2.3)', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-route-member-expression'));
+    });
+
+    it('binds `<Pages.Dashboard />` via namespace import', () => {
+      const dash = records.find(
+        (r) =>
+          r.filePath === 'src/pages/Dashboard.tsx' &&
+          r.componentName === 'Button',
+      );
+      // The namespace import file (pages/index.ts) is the page-component
+      // anchor. Both `<Pages.Dashboard/>` and `<Pages.MobileBuilds/>` map
+      // to the same anchor, so Dashboard.tsx is reachable from both routes
+      // and lands as `shared`.
+      expect(dash?.route.kind === 'bound' || dash?.route.kind === 'shared').toBe(true);
+      if (dash?.route.kind === 'shared') {
+        expect(dash.route.paths.length).toBeGreaterThanOrEqual(2);
+      }
+    });
+
+    it('binds `<Pages.MobileBuilds />` (same namespace)', () => {
+      const builds = records.find(
+        (r) =>
+          r.filePath === 'src/pages/MobileBuilds.tsx' &&
+          r.componentName === 'Button',
+      );
+      expect(builds?.route.kind === 'bound' || builds?.route.kind === 'shared').toBe(true);
+    });
+
+    it('binds `<Routes.Settings />` from named-import-of-object', () => {
+      const settings = records.find(
+        (r) =>
+          r.filePath === 'src/page-registry/Settings.tsx' &&
+          r.componentName === 'Button',
+      );
+      expect(settings?.route.kind === 'bound' || settings?.route.kind === 'shared').toBe(true);
+    });
+
+    it('does not emit jsx-member-unresolved warnings for resolvable members', async () => {
+      const dir = await scratchConfigDir();
+      const cfgPath = await writeConfigs(dir, [
+        {
+          name: 'fixture-route-member-expression',
+          localPath: join(FIXTURE_ROOT, 'fixture-route-member-expression'),
+        },
+      ]);
+      const result = await runScan({ configPath: cfgPath });
+      const warnings = JSON.parse(
+        await readFile(join(dirname(result.aggregatesPath), 'warnings.json'), 'utf-8'),
+      ) as Array<{ code: string; message: string }>;
+      const jsxMemberWarnings = warnings.filter((w) =>
+        w.message.includes('jsx-member-'),
+      );
+      expect(jsxMemberWarnings).toEqual([]);
+    });
+  });
+
   describe('per-repo config is optional (no .beaver-scan.json)', () => {
     it('fixture-no-config scans using built-in defaults', async () => {
       process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;

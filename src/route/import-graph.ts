@@ -66,6 +66,19 @@ function collectImports(ast: TSESTree.Program): string[] {
       if (node.source.type === 'Literal' && typeof node.source.value === 'string') {
         out.push(node.source.value);
       }
+    } else if (
+      // `export { X } from './foo'` and `export * from './foo'` both create
+      // module-graph edges identical to `import { X } from './foo'`. Without
+      // these, a barrel file like pages/index.ts has zero outbound edges
+      // and the reachable set from a router pageComponentFile=index.ts
+      // wouldn't include the actual page files — every route binding from
+      // `<Pages.X/>` would collapse to `unmapped`.
+      (node.type === 'ExportNamedDeclaration' ||
+        node.type === 'ExportAllDeclaration') &&
+      node.source &&
+      typeof node.source.value === 'string'
+    ) {
+      out.push(node.source.value);
     }
     pushChildren(node, stack);
   }
