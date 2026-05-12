@@ -41,12 +41,14 @@ afterAll(async () => {
 async function writeConfigs(
   dir: string,
   repos: Array<{ name: string; localPath: string; config?: unknown }>,
+  global?: { sharedLibraries?: unknown[] },
 ): Promise<string> {
-  const cfg = {
+  const cfg: Record<string, unknown> = {
     beaverUrl: 'ssh://fake-unused-because-of-env',
     repositoriesFile: './repositories.json',
     output: { dir: './results', formats: ['jsonl', 'aggregates', 'html'] },
   };
+  if (global?.sharedLibraries) cfg.sharedLibraries = global.sharedLibraries;
   const cfgPath = join(dir, '.beaver-scan.config.json');
   await writeFile(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
   await writeFile(
@@ -404,6 +406,94 @@ describe('pipeline end-to-end', () => {
       );
       expect(shared.length).toBeGreaterThan(0);
       expect(shared[0]!.sharedAcrossRoutes).toEqual(['/dashboard', '/settings']);
+    });
+  });
+
+  describe('sharedLibraries (PF2.2) — declared once, applies to every repo', () => {
+    it('consumer with no localLibraries config still picks up team-platform', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const dir = await scratchConfigDir();
+      const sharedLibAbsPath = join(FIXTURE_ROOT, 'shared-kits/team-platform');
+      const cfgPath = await writeConfigs(
+        dir,
+        [
+          {
+            name: 'fixture-uses-shared-lib',
+            localPath: join(FIXTURE_ROOT, 'fixture-uses-shared-lib'),
+          },
+        ],
+        {
+          sharedLibraries: [
+            {
+              libId: 'team-platform',
+              matchPattern: '@team/platform',
+              source: { type: 'local-path', path: sharedLibAbsPath },
+              kind: 'partially-beaver-backed',
+            },
+          ],
+        },
+      );
+      const result = await runScan({ configPath: cfgPath });
+      const dataset = await readJsonl(result.datasetPath);
+      const records = dataset.filter((r): r is UsageRecord => r.kind === 'usage');
+
+      const team = records.find((r) => r.componentName === 'TeamButton');
+      expect(team?.category).toBe('local-library');
+      expect(team?.bucket).toBe('adoption');
+      expect(team?.localLibId).toBe('team-platform');
+      expect(team?.beaverBackedByLib).toBe(true);
+
+      const legacy = records.find((r) => r.componentName === 'LegacyDropdown');
+      expect(legacy?.category).toBe('local-library');
+      expect(legacy?.bucket).toBe('shadow');
+      expect(legacy?.localLibId).toBe('team-platform');
+    });
+
+    it('per-repo localLibraries override sharedLibraries by libId', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const dir = await scratchConfigDir();
+      const sharedLibAbsPath = join(FIXTURE_ROOT, 'shared-kits/team-platform');
+      const cfgPath = await writeConfigs(
+        dir,
+        [
+          {
+            name: 'fixture-uses-shared-lib',
+            localPath: join(FIXTURE_ROOT, 'fixture-uses-shared-lib'),
+            // Same libId, but with kind='fully-custom' — overrides shared.
+            // All shared components are now classified as shadow when
+            // prescan can't reach the source (per-repo path doesn't point
+            // at the real kit), validating override semantics.
+            config: {
+              localLibraries: [
+                {
+                  libId: 'team-platform',
+                  matchPattern: '@team/platform',
+                  source: { type: 'local-path', path: './nonexistent' },
+                  kind: 'fully-custom',
+                },
+              ],
+            },
+          },
+        ],
+        {
+          sharedLibraries: [
+            {
+              libId: 'team-platform',
+              matchPattern: '@team/platform',
+              source: { type: 'local-path', path: sharedLibAbsPath },
+              kind: 'partially-beaver-backed',
+            },
+          ],
+        },
+      );
+      const result = await runScan({ configPath: cfgPath });
+      const dataset = await readJsonl(result.datasetPath);
+      const records = dataset.filter((r): r is UsageRecord => r.kind === 'usage');
+      // With the override active, even TeamButton (which is Beaver-backed
+      // at source) falls back to shadow because the per-repo source.path
+      // doesn't exist and kind=fully-custom forces the shadow branch.
+      const team = records.find((r) => r.componentName === 'TeamButton');
+      expect(team?.bucket).toBe('shadow');
     });
   });
 

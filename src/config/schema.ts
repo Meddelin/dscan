@@ -1,5 +1,29 @@
 import { z } from 'zod';
 
+/**
+ * Shape of a single library declaration. Used in two places:
+ *   - GlobalConfig.sharedLibraries — applies to every scanned repo;
+ *     `source.path` is resolved relative to the operator's config dir.
+ *   - PerRepoConfig.localLibraries — applies only to that repo;
+ *     `source.path` is resolved relative to the repo root.
+ *
+ * When the same `libId` appears in both, the per-repo entry wins entirely
+ * (no field-level merge). Operators use shared libs for cross-repo
+ * declarations and per-repo overrides for the few repos that need to
+ * tweak `kind` or `matchPattern`.
+ */
+export const LocalLibrarySchema = z.object({
+  libId: z.string().min(1),
+  matchPattern: z.string().min(1),
+  source: z.object({
+    type: z.literal('local-path'),
+    path: z.string().min(1),
+  }),
+  kind: z.enum(['partially-beaver-backed', 'fully-custom']),
+});
+
+export type LocalLibrary = z.infer<typeof LocalLibrarySchema>;
+
 export const GlobalConfigSchema = z.object({
   beaverUrl: z.string().min(1).describe('SSH URL to Beaver repo'),
   repositoriesFile: z.string().default('./repositories.json'),
@@ -41,6 +65,17 @@ export const GlobalConfigSchema = z.object({
     .optional(),
 
   primitiveNames: z.array(z.string()).optional(),
+
+  /**
+   * Declared once, applied to every scanned consumer repo. Useful for design
+   * systems / utility kits that live next to (or above) the consumer repos
+   * and don't change shape across them. Per-repo `localLibraries` with the
+   * same libId override entries here for that one repo. `source.path` is
+   * resolved relative to the directory holding the global config (`configDir`)
+   * — that way the same path string works regardless of which consumer is
+   * being scanned.
+   */
+  sharedLibraries: z.array(LocalLibrarySchema).default([]),
 });
 
 export type GlobalConfig = z.infer<typeof GlobalConfigSchema>;
@@ -71,19 +106,7 @@ export const PerRepoConfigSchema = z.object({
   exclude: z.array(z.string()).default([]),
   tsconfig: z.string().default('tsconfig.json'),
 
-  localLibraries: z
-    .array(
-      z.object({
-        libId: z.string().min(1),
-        matchPattern: z.string().min(1),
-        source: z.object({
-          type: z.literal('local-path'),
-          path: z.string().min(1),
-        }),
-        kind: z.enum(['partially-beaver-backed', 'fully-custom']),
-      }),
-    )
-    .default([]),
+  localLibraries: z.array(LocalLibrarySchema).default([]),
 
   routeResolution: z
     .object({

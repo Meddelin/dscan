@@ -2,7 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { extname, join, resolve as resolvePath } from 'node:path';
 import { parse, type TSESTree } from '@typescript-eslint/typescript-estree';
 const JSX_EXT = new Set(['.tsx', '.jsx']);
-import type { PerRepoConfig } from '../config/schema.js';
+import type { LocalLibrary } from '../config/schema.js';
 import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
 import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
 
@@ -10,41 +10,79 @@ const BARREL_DEPTH_LIMIT = 5;
 const SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 
 /**
- * Stage 5b (§4.5) — per-repo local-library prescan.
- * Walks each declared library's `source.path` directory, decides for every
- * exported component whether it's Beaver-backed.
- *
- * MVP scope: only `local-path` source (§9.2). A library file counts as
- * Beaver-backed iff it directly imports from any `@beaver-ui/*` package in
- * the supplied {@link BeaverRegistry}. Symbols re-exported through barrel
- * files inherit the backing of their ultimate defining file; lookup follows
- * up to {@link BARREL_DEPTH_LIMIT} hops and aborts on cycles.
+ * A library declaration after path resolution. Used by both global (shared)
+ * and per-repo prescans — the caller resolves `source.path` against the
+ * appropriate base (configDir for shared libs, repoRoot for per-repo) and
+ * stores it as `sourceAbsPath`.
  */
-export async function prescanLocalLibs(
-  perRepo: PerRepoConfig,
-  repoRoot: string,
+export interface ResolvedLibrary {
+  libId: string;
+  matchPattern: string;
+  sourceAbsPath: string;
+  kind: 'partially-beaver-backed' | 'fully-custom';
+  /** Diagnostic: where this declaration came from. */
+  scope: 'shared' | 'repo';
+}
+
+export function resolveLibraries(
+  libs: LocalLibrary[],
+  baseDir: string,
+  scope: 'shared' | 'repo',
+): ResolvedLibrary[] {
+  return libs.map((lib) => ({
+    libId: lib.libId,
+    matchPattern: lib.matchPattern,
+    sourceAbsPath: resolvePath(baseDir, lib.source.path),
+    kind: lib.kind,
+    scope,
+  }));
+}
+
+/**
+ * Merge two ResolvedLibrary arrays by libId. Entries from {@link override}
+ * (typically per-repo) win on conflict. Order: overrides first, then any
+ * shared entries not overridden — gives operators predictable iteration
+ * order when debugging.
+ */
+export function mergeLibraries(
+  base: ResolvedLibrary[],
+  override: ResolvedLibrary[],
+): ResolvedLibrary[] {
+  const out: ResolvedLibrary[] = [...override];
+  const overriddenIds = new Set(override.map((l) => l.libId));
+  for (const lib of base) {
+    if (!overriddenIds.has(lib.libId)) out.push(lib);
+  }
+  return out;
+}
+
+/**
+ * Stage 5b (§4.5) prescan. Walks each library's resolved source directory,
+ * decides for every exported component whether it's Beaver-backed.
+ *
+ * Generic over scope: callers pass a pre-resolved {@link ResolvedLibrary[]}
+ * (use {@link resolveLibraries} + {@link mergeLibraries}) and a base
+ * directory for `tsconfig.json` lookup (configDir for shared, repoRoot for
+ * per-repo).
+ */
+export async function prescanLibraries(
+  libs: ResolvedLibrary[],
+  tsconfigBaseDir: string,
   beaverRegistry: BeaverRegistry,
   tsconfigRel: string,
 ): Promise<LocalLibRegistry> {
   const byLib = new Map<string, Map<string, boolean>>();
   const prescanFailed: string[] = [];
 
-  if (perRepo.localLibraries.length === 0) {
+  if (libs.length === 0) {
     return { byLib, prescanFailed };
   }
 
-  const resolver = await createTsResolver(repoRoot, tsconfigRel);
+  const resolver = await createTsResolver(tsconfigBaseDir, tsconfigRel);
 
-  for (const lib of perRepo.localLibraries) {
-    if (lib.source.type !== 'local-path') {
-      // v2 territory; Zod schema currently enforces only 'local-path', so
-      // this branch is defensive.
-      prescanFailed.push(lib.libId);
-      continue;
-    }
-    const libRoot = resolvePath(repoRoot, lib.source.path);
+  for (const lib of libs) {
     try {
-      const scan = await scanLibrary(libRoot, resolver, beaverRegistry);
+      const scan = await scanLibrary(lib.sourceAbsPath, resolver, beaverRegistry);
       byLib.set(lib.libId, flattenBacking(scan));
     } catch {
       prescanFailed.push(lib.libId);
@@ -53,6 +91,36 @@ export async function prescanLocalLibs(
   }
 
   return { byLib, prescanFailed };
+}
+
+/**
+ * Backward-compatible wrapper for the original per-repo signature. Tests
+ * still call this; production code goes through `prescanLibraries` with
+ * pre-merged libraries.
+ */
+export async function prescanLocalLibs(
+  perRepo: { localLibraries: LocalLibrary[] },
+  repoRoot: string,
+  beaverRegistry: BeaverRegistry,
+  tsconfigRel: string,
+): Promise<LocalLibRegistry> {
+  const resolved = resolveLibraries(perRepo.localLibraries, repoRoot, 'repo');
+  return prescanLibraries(resolved, repoRoot, beaverRegistry, tsconfigRel);
+}
+
+/** Merge two registries — overrides win per libId, matching {@link mergeLibraries}. */
+export function mergeRegistries(
+  base: LocalLibRegistry,
+  override: LocalLibRegistry,
+): LocalLibRegistry {
+  const byLib = new Map(base.byLib);
+  for (const [libId, entries] of override.byLib) {
+    byLib.set(libId, entries);
+  }
+  return {
+    byLib,
+    prescanFailed: [...new Set([...base.prescanFailed, ...override.prescanFailed])],
+  };
 }
 
 interface FileScan {

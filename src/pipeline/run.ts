@@ -23,7 +23,13 @@ import type {
 } from '../types/dataset.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { prescanBeaver } from '../prescan/beaver.js';
-import { prescanLocalLibs } from '../prescan/local-lib.js';
+import {
+  prescanLibraries,
+  resolveLibraries,
+  mergeLibraries,
+  mergeRegistries,
+  type ResolvedLibrary,
+} from '../prescan/local-lib.js';
 import { gitClone, isGitRepo } from '../ops/git.js';
 import { createTsResolver, type TsResolver } from '../resolve/ts-resolver.js';
 import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
@@ -85,6 +91,21 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     cacheDir,
   });
 
+  // sharedLibraries are declared once in global config; scan their sources
+  // here, before the per-repo loop. Path is resolved relative to configDir
+  // so the same declaration applies to every consumer.
+  const sharedResolved = resolveLibraries(
+    config.sharedLibraries,
+    configDir,
+    'shared',
+  );
+  const sharedRegistry = await prescanLibraries(
+    sharedResolved,
+    configDir,
+    beaverRegistry,
+    'tsconfig.json',
+  );
+
   const allRecords: DatasetRecord[] = [];
   const allWarnings: Warning[] = [];
   let filesScanned = 0;
@@ -94,12 +115,26 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     const repoRoot = await resolveRepoRoot(repo, configDir);
     const perRepo = await loadPerRepoConfig(repoRoot, repo.config);
     const resolver = await createTsResolver(repoRoot, perRepo.tsconfig);
-    const localLibRegistry = await prescanLocalLibs(
-      perRepo,
+
+    // Build the effective library list: per-repo localLibraries override
+    // sharedLibraries on libId conflict, then we prescan the per-repo ones
+    // and merge with the already-scanned shared registry.
+    const perRepoResolved = resolveLibraries(
+      perRepo.localLibraries,
+      repoRoot,
+      'repo',
+    );
+    const effectiveLibraries: ResolvedLibrary[] = mergeLibraries(
+      sharedResolved,
+      perRepoResolved,
+    );
+    const perRepoLibRegistry = await prescanLibraries(
+      perRepoResolved,
       repoRoot,
       beaverRegistry,
       perRepo.tsconfig,
     );
+    const localLibRegistry = mergeRegistries(sharedRegistry, perRepoLibRegistry);
 
     const files = await discoverFiles(repoId, repoRoot, perRepo);
     filesScanned += files.length;
@@ -114,6 +149,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
       resolver,
       beaverRegistry,
       localLibRegistry,
+      effectiveLibraries,
       globalPrimitiveNames: config.primitiveNames ?? DEFAULT_PRIMITIVE_NAMES,
       thresholds: config.thresholds,
     });
@@ -236,6 +272,7 @@ interface ClassifyRepoInput {
   resolver: TsResolver;
   beaverRegistry: BeaverRegistry;
   localLibRegistry: LocalLibRegistry;
+  effectiveLibraries: ResolvedLibrary[];
   globalPrimitiveNames: string[];
   thresholds: {
     reusableLocalFiles: number;
@@ -279,6 +316,7 @@ async function classifyRepo(input: ClassifyRepoInput) {
       resolver: input.resolver,
       beaverRegistry: input.beaverRegistry,
       localLibRegistry: input.localLibRegistry,
+      effectiveLibraries: input.effectiveLibraries,
     });
     for (const pre of result.preClassified) {
       if (pre.kind === 'finalized') finalizedUsages.push(pre.record);

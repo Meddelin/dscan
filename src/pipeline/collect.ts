@@ -1,9 +1,9 @@
 import picomatch from 'picomatch';
-import { resolve as resolvePath } from 'node:path';
 import type { TSESTree } from '@typescript-eslint/typescript-estree';
 import type { ParsedFile } from './parse.js';
 import type { PerRepoConfig } from '../config/schema.js';
 import type { BeaverRegistry, LocalLibRegistry } from '../types/prescan.js';
+import type { ResolvedLibrary } from '../prescan/local-lib.js';
 import type { TsResolver } from '../resolve/ts-resolver.js';
 import type {
   ClassificationSource,
@@ -72,6 +72,12 @@ export interface CollectContext {
   resolver: TsResolver;
   beaverRegistry: BeaverRegistry;
   localLibRegistry: LocalLibRegistry;
+  /**
+   * Pre-merged (shared + per-repo) libraries with paths already resolved.
+   * collect.ts no longer needs to know about per-repo vs global scope;
+   * run.ts hands it the effective list.
+   */
+  effectiveLibraries: ResolvedLibrary[];
 }
 
 export interface CollectResult {
@@ -89,7 +95,7 @@ export interface CollectResult {
  */
 export function collectUsages(ctx: CollectContext): CollectResult {
   const imports = collectImports(ctx.parsed.ast);
-  const localLibs = buildLocalLibResolvers(ctx.perRepo, ctx.repoRoot);
+  const localLibs = buildLocalLibResolvers(ctx.effectiveLibraries);
 
   const preClassified: PreClassified[] = [];
   const unresolved: UnresolvedRecord[] = [];
@@ -333,13 +339,11 @@ function finalize(
 }
 
 function buildLocalLibResolvers(
-  perRepo: PerRepoConfig,
-  repoRoot: string,
+  libs: ResolvedLibrary[],
 ): LocalLibraryResolver[] {
-  return perRepo.localLibraries.map((lib) => {
+  return libs.map((lib) => {
     const matchSource = picomatch(lib.matchPattern);
-    const abs = resolvePath(repoRoot, lib.source.path);
-    const normalized = abs.replace(/\\/g, '/').toLowerCase();
+    const normalized = lib.sourceAbsPath.replace(/\\/g, '/').toLowerCase();
     return {
       libId: lib.libId,
       kind: lib.kind,

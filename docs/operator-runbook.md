@@ -55,6 +55,17 @@ export default defineConfig({
     codeSnippetMaxLines: 200,
   },
   routeResolution: { enabled: true, router: 'react-router-v6' },
+  // Cross-repo libraries — declared once here, applied to every consumer.
+  // Use this for the design kits / utility packages many consumers share.
+  // source.path is resolved relative to this config file.
+  sharedLibraries: [
+    {
+      libId: 'team-platform',
+      matchPattern: '@team/platform',
+      source: { type: 'local-path', path: './shared-kits/team-platform' },
+      kind: 'partially-beaver-backed',
+    },
+  ],
 });
 ```
 
@@ -103,6 +114,11 @@ per-repo settings live in one of two places, in this precedence order:
 
 A present-but-malformed config (consumer-side `.beaver-scan.json` or inline)
 fails fast with exit code 2 — typos shouldn't slip through.
+
+For libraries shared across every consumer (one DS kit, many apps), use the
+top-level `sharedLibraries` field in the global config instead — declared
+once, no per-repo wiring needed. Per-repo `localLibraries` with the same
+`libId` override the shared entry entirely.
 
 ## First run — pilot
 

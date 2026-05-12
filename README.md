@@ -94,7 +94,7 @@ Exit-коды: `0` — норм; `2` — невалидный конфиг (Zod)
 
 Консьюмер-репо **не обязаны** добавлять `.beaver-scan.json` — работают built-in defaults (PRD §9.2 разворот, [implementation/plan.md](./implementation/plan.md#deviation-from-prd-92)).
 
-Приоритет:
+Приоритет (от высшего к низшему):
 
 1. **`.beaver-scan.json` у консьюмера** (если положили сами) — побеждает.
 2. **Inline-поле `config`** на записи репо в `repositories.json` (оператор):
@@ -115,6 +115,29 @@ Exit-коды: `0` — норм; `2` — невалидный конфиг (Zod)
 3. **Built-in defaults** (Zod-схема — `include: src/**/*.{ts,tsx,js,jsx}`, дефолтные excludes, route resolution on, пустой `localLibraries`).
 
 Малформенный конфиг (битый JSON / Zod failure) по-прежнему падает fail-fast (exit 2). Просто отсутствующий — это норма.
+
+## `sharedLibraries` — кросс-репо local libraries
+
+Если несколько консьюмер-репо импортируют один и тот же design-kit (например, `@team/platform`), не нужно прописывать его в `localLibraries` каждого репо. Объяви один раз в global config:
+
+```ts
+export default defineConfig({
+  beaverUrl: 'ssh://...',
+  repositoriesFile: './repositories.json',
+  sharedLibraries: [
+    {
+      libId: 'team-platform',
+      matchPattern: '@team/platform',
+      source: { type: 'local-path', path: './shared-kits/team-platform' },
+      kind: 'partially-beaver-backed',
+    },
+  ],
+});
+```
+
+`source.path` для `sharedLibraries` резолвится относительно директории, где лежит `ds-scanner.config.ts` — одно объявление работает для всех консьюмеров.
+
+Конфликт `libId` (per-repo и shared): per-repo entry **полностью** заменяет shared (entry-level, не field-level merge). Используется для точечных переопределений в отдельных репо.
 
 ## Ожидаемая структура каталога оператора
 
