@@ -614,6 +614,41 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('route resolver — deep wrapper nesting (PF2.5)', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-route-deep-wrapper'));
+    });
+
+    it('binds /plain through one external wrapper to local PlainPage', () => {
+      const plain = records.find(
+        (r) =>
+          r.filePath === 'src/pages/PlainPage.tsx' &&
+          r.componentName === 'Button',
+      );
+      expect(plain?.route.kind).toBe('bound');
+      if (plain?.route.kind === 'bound') expect(plain.route.path).toBe('/plain');
+    });
+
+    it('binds /builds through 3-deep wrapper + member-expr child', () => {
+      // BFS order through the JSX tree: ErrorBoundary (ext), AbilityGuard
+      // (ext), Layout (in-repo!), Pages.BuildInfra (member-expr). First
+      // in-repo candidate wins → Layout.tsx anchors /builds. The
+      // Pages.BuildInfra is rendered as a child of Layout but the import
+      // graph from Layout doesn't reach BuildInfra.tsx (only router.tsx
+      // does). What matters: route resolves at all (`bound`, not
+      // unmapped) and the first local component in the JSX tree wins.
+      const layout = records.find(
+        (r) => r.filePath === 'src/shared/Layout.tsx',
+      );
+      expect(layout?.route.kind).toBe('bound');
+      if (layout?.route.kind === 'bound') {
+        expect(layout.route.path).toBe('/builds');
+      }
+    });
+  });
+
   describe('route resolver — path constants (PF2.4)', () => {
     let records: UsageRecord[];
     beforeAll(async () => {
