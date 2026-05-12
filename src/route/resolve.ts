@@ -33,6 +33,7 @@ export function resolveRoutes(input: ResolveRoutesInput): RouteResolution {
       const code = colonIdx === -1 ? w : w.slice(0, colonIdx);
       warnings.push({
         filePath: e.configFilePath,
+        absPath: e.configAbsPath,
         routePath: e.path,
         code,
         message: w,

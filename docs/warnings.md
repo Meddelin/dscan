@@ -3,13 +3,19 @@
 Every entry in `warnings.json` has the shape:
 
 ```json
-{ "repoId": "...", "filePath": "...", "code": "...", "message": "..." }
+{ "repoId": "...", "filePath": "...", "absPath": "...", "code": "...", "message": "..." }
 ```
 
-`repoId` is filled for every per-repo warning. `filePath` is filled
-whenever the warning is anchored to a specific file — including
-`route-resolution-warning`, where the path points at the file hosting
-the offending route entry. Use it to navigate straight to the source.
+- `repoId` — filled for every per-repo warning.
+- `filePath` — repo-relative, forward-slashed. Stable across machines;
+  preferred field for BI / cross-host pipelines.
+- `absPath` — absolute path on the operator's filesystem (same file as
+  `filePath`). Use it for one-click navigation from terminal / IDE.
+  Ignore in BI pipelines.
+
+Both are present when the warning is anchored to a specific file —
+including `route-resolution-warning`, where they point at the route-config
+file (`router.tsx` / `routes.ts`), not at the offending page-component.
 
 | Code | Source | Meaning |
 |------|--------|---------|

@@ -407,6 +407,42 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('mocks / fixtures excluded by default (PF2.1)', () => {
+    it('does not scan __mocks__/ or *.mock.* by default', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const { records } = await runOnFixture('fixture-mocks-excluded');
+      // Real.tsx is in the scan; mock siblings must not contribute usages.
+      const paths = new Set(records.map((r) => r.filePath));
+      expect(paths.has('src/Real.tsx')).toBe(true);
+      expect(paths.has('src/__mocks__/Real.tsx')).toBe(false);
+      expect(paths.has('src/components/Button.mock.tsx')).toBe(false);
+    });
+  });
+
+  describe('warnings carry absPath (PF2.1)', () => {
+    it('parse-failed warning includes absolute path', async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const dir = await scratchConfigDir();
+      const malformedRoot = join(dir, 'malformed-repo');
+      const { mkdir, writeFile: writeFileFn } = await import('node:fs/promises');
+      await mkdir(join(malformedRoot, 'src'), { recursive: true });
+      await writeFileFn(join(malformedRoot, '.beaver-scan.json'), '{}', 'utf-8');
+      await writeFileFn(join(malformedRoot, 'src/broken.tsx'), 'const x = <<<<', 'utf-8');
+      const cfgPath = await writeConfigs(dir, [
+        { name: 'malformed-repo', localPath: malformedRoot },
+      ]);
+      const result = await runScan({ configPath: cfgPath });
+      const warnings = JSON.parse(
+        await readFile(join(dirname(result.aggregatesPath), 'warnings.json'), 'utf-8'),
+      ) as Array<{ code: string; absPath?: string; filePath?: string }>;
+      const parseFail = warnings.find((w) => w.code === 'parse-failed');
+      expect(parseFail).toBeDefined();
+      expect(parseFail!.filePath).toBe('src/broken.tsx');
+      expect(parseFail!.absPath).toBeDefined();
+      expect(parseFail!.absPath!.replace(/\\/g, '/').endsWith('/src/broken.tsx')).toBe(true);
+    });
+  });
+
   describe('parser respects file extension (no jsx for .ts)', () => {
     it('TS-only files with generics parse without `parse-failed`', async () => {
       process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;

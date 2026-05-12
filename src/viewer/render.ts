@@ -57,6 +57,22 @@ export function renderReport(aggregates: Aggregates): string {
   </section>
 
   <section class="panel">
+    <h2>E — Per-route adoption</h2>
+    <p class="muted">Adoption per (repo, route) — counts only usages whose file is bound to exactly one route (§7.5). Surfaced first because routes are how product teams reason about adoption: "/checkout looks worse than /admin".</p>
+    <table class="data-table" id="per-route-table">
+      <thead>
+        <tr>
+          <th>Repo</th>
+          <th>Route</th>
+          <th class="num">Adoption</th>
+          <th class="num">adoption / shadow</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
     <h2>B — Per-repo adoption</h2>
     <table class="data-table" id="per-repo-table">
       <thead><tr><th>Repo</th><th class="num">Adoption</th></tr></thead>
@@ -106,21 +122,6 @@ export function renderReport(aggregates: Aggregates): string {
           <th>Package</th>
           <th class="num">Repos using</th>
           <th class="num">Instances</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </section>
-
-  <section class="panel">
-    <h2>E — Per-route adoption</h2>
-    <table class="data-table" id="per-route-table">
-      <thead>
-        <tr>
-          <th>Repo</th>
-          <th>Route</th>
-          <th class="num">Adoption</th>
-          <th class="num">adoption / shadow</th>
         </tr>
       </thead>
       <tbody></tbody>

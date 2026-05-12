@@ -32,6 +32,7 @@ export async function parseFiles(files: DiscoveredFile[]): Promise<ParseResult> 
       warnings.push({
         repoId: file.repoId,
         filePath: file.relPath,
+        absPath: file.absPath,
         code: 'file-read-failed',
         message: (err as Error).message,
       });
@@ -59,6 +60,7 @@ export async function parseFiles(files: DiscoveredFile[]): Promise<ParseResult> 
       warnings.push({
         repoId: file.repoId,
         filePath: file.relPath,
+        absPath: file.absPath,
         code: 'parse-failed',
         message: (err as Error).message.slice(0, 200),
       });

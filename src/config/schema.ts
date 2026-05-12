@@ -130,4 +130,11 @@ export const DEFAULT_EXCLUDES = [
   '**/*.test.*',
   '**/*.spec.*',
   '**/*.stories.*',
+  // Mocks / fixtures — test scaffolding that distorts metrics if included.
+  // Operators can opt back in by overriding `exclude` in per-repo config.
+  '**/__mocks__/**',
+  '**/__fixtures__/**',
+  '**/mocks/**',
+  '**/*.mock.*',
+  '**/*.fixture.*',
 ];

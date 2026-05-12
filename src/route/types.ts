@@ -41,6 +41,8 @@ export interface RouteEntry {
 export interface RouteWarning {
   /** Repo-relative path of the route-config file that emitted this warning. */
   filePath: string;
+  /** Absolute path of the same file — for IDE navigation. */
+  absPath: string;
   /** Joined route path, if applicable (else empty string). */
   routePath: string;
   /** Short, machine-style code (e.g. "page-not-imported", "dynamic-path-skipped"). */

@@ -136,6 +136,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
           allWarnings.push({
             repoId,
             filePath: w.filePath,
+            absPath: w.absPath,
             code: 'route-resolution-warning',
             message: `[${w.code}] route ${w.routePath}: ${w.message}`,
           });

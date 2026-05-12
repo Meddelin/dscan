@@ -10,7 +10,7 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 
 | Stage | Статус |
 |-------|--------|
-| 1. Discovery | ✅ |
+| 1. Discovery | ✅ (mocks/fixtures excluded by default) |
 | 2. Parse | ✅ (`jsx` по расширению — `.ts` не ломаются на generics) |
 | 3. Resolve | ✅ (TS compiler API, tsconfig paths) |
 | 4. Categorize | ✅ |

@@ -104,7 +104,14 @@ export type DatasetRecord = UsageRecord | ShadowComponentRecord | UnresolvedReco
 
 export interface Warning {
   repoId?: string;
+  /** Repo-relative, forward-slashed. Stable across machines — good for BI. */
   filePath?: string;
+  /**
+   * Absolute path on the operator's filesystem. Same file as {@link filePath}
+   * but prefixed with the local repo checkout. Use this in IDEs / from the
+   * CLI for one-click navigation; ignore it in BI / cross-machine pipelines.
+   */
+  absPath?: string;
   code: string;
   message: string;
 }
