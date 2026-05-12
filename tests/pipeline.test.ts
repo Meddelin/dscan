@@ -614,6 +614,59 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('route resolver — path constants (PF2.4)', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-route-path-constants'));
+    });
+
+    it('binds Home to / via direct const identifier (ROOT_PATH)', () => {
+      const home = records.find(
+        (r) => r.filePath === 'src/pages/Home.tsx' && r.componentName === 'Button',
+      );
+      expect(home?.route.kind).toBe('bound');
+      if (home?.route.kind === 'bound') expect(home.route.path).toBe('/');
+    });
+
+    it('binds Dashboard to /dashboard via single-level member (ROUTER_PATHS.dashboard)', () => {
+      const dash = records.find(
+        (r) =>
+          r.filePath === 'src/pages/Dashboard.tsx' && r.componentName === 'Button',
+      );
+      expect(dash?.route.kind).toBe('bound');
+      if (dash?.route.kind === 'bound') expect(dash.route.path).toBe('/dashboard');
+    });
+
+    it('binds Payment to /checkout/payment via nested member', () => {
+      const pay = records.find(
+        (r) => r.filePath === 'src/pages/Payment.tsx' && r.componentName === 'Button',
+      );
+      expect(pay?.route.kind).toBe('bound');
+      if (pay?.route.kind === 'bound') {
+        expect(pay.route.path).toBe('/checkout/payment');
+      }
+    });
+
+    it('does not emit dynamic-path-skipped warnings for resolvable constants', async () => {
+      const dir = await scratchConfigDir();
+      const cfgPath = await writeConfigs(dir, [
+        {
+          name: 'fixture-route-path-constants',
+          localPath: join(FIXTURE_ROOT, 'fixture-route-path-constants'),
+        },
+      ]);
+      const result = await runScan({ configPath: cfgPath });
+      const warnings = JSON.parse(
+        await readFile(join(dirname(result.aggregatesPath), 'warnings.json'), 'utf-8'),
+      ) as Array<{ code: string; message: string }>;
+      const pathSkipped = warnings.filter((w) =>
+        w.message.includes('dynamic-path-skipped'),
+      );
+      expect(pathSkipped).toEqual([]);
+    });
+  });
+
   describe('route resolver — JSX member expressions (PF2.3)', () => {
     let records: UsageRecord[];
     beforeAll(async () => {

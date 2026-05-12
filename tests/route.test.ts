@@ -25,14 +25,14 @@ async function prepare() {
 describe('route resolver — data-router fixture', () => {
   it('discovers both createBrowserRouter routes', async () => {
     const { parsed, resolver } = await prepare();
-    const resolution = resolveRoutes({ parsed, resolver, depthLimit: 20 });
+    const resolution = await resolveRoutes({ parsed, resolver, depthLimit: 20 });
     const paths = resolution.entries.map((e) => e.path).sort();
     expect(paths).toEqual(['/dashboard', '/settings']);
   });
 
   it('binds Dashboard page file to /dashboard only', async () => {
     const { parsed, resolver } = await prepare();
-    const resolution = resolveRoutes({ parsed, resolver, depthLimit: 20 });
+    const resolution = await resolveRoutes({ parsed, resolver, depthLimit: 20 });
     const key = normalize(resolve(FIXTURE, 'src/pages/Dashboard.tsx'));
     expect(resolution.byFile.get(key)).toEqual({
       kind: 'bound',
@@ -42,7 +42,7 @@ describe('route resolver — data-router fixture', () => {
 
   it('marks Header (used by both pages) as shared', async () => {
     const { parsed, resolver } = await prepare();
-    const resolution = resolveRoutes({ parsed, resolver, depthLimit: 20 });
+    const resolution = await resolveRoutes({ parsed, resolver, depthLimit: 20 });
     const key = normalize(resolve(FIXTURE, 'src/shared/Header.tsx'));
     const binding = resolution.byFile.get(key);
     expect(binding?.kind).toBe('shared');
@@ -53,7 +53,7 @@ describe('route resolver — data-router fixture', () => {
 
   it('marks PermissionGate (Settings-only) as bound to /settings', async () => {
     const { parsed, resolver } = await prepare();
-    const resolution = resolveRoutes({ parsed, resolver, depthLimit: 20 });
+    const resolution = await resolveRoutes({ parsed, resolver, depthLimit: 20 });
     const key = normalize(resolve(FIXTURE, 'src/providers/PermissionGate.tsx'));
     expect(resolution.byFile.get(key)).toEqual({
       kind: 'bound',
@@ -63,7 +63,7 @@ describe('route resolver — data-router fixture', () => {
 
   it('marks Logger (not imported by any page) as unmapped', async () => {
     const { parsed, resolver } = await prepare();
-    const resolution = resolveRoutes({ parsed, resolver, depthLimit: 20 });
+    const resolution = await resolveRoutes({ parsed, resolver, depthLimit: 20 });
     const key = normalize(resolve(FIXTURE, 'src/utils/Logger.tsx'));
     expect(resolution.byFile.get(key)).toEqual({ kind: 'unmapped' });
   });
@@ -78,7 +78,7 @@ describe('route resolver — data-router fixture', () => {
     });
     const { parsed } = await parseFiles(files);
     const resolver = await createTsResolver(NO_ROUTER, 'tsconfig.json');
-    const resolution = resolveRoutes({ parsed, resolver, depthLimit: 20 });
+    const resolution = await resolveRoutes({ parsed, resolver, depthLimit: 20 });
     expect(resolution.entries.length).toBe(0);
     expect(resolution.byFile.size).toBe(0);
   });

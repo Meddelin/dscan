@@ -3,6 +3,7 @@ import type { TsResolver } from '../resolve/ts-resolver.js';
 import type { ParsedFile } from '../pipeline/parse.js';
 import type { DiscoveredConfigSite } from './discovery.js';
 import type { RouteEntry } from './types.js';
+import { ConstantEvaluator } from './constant-eval.js';
 
 /**
  * Stage 7.2 (§4.7.2) — for every discovered route-array, extract
@@ -21,29 +22,31 @@ import type { RouteEntry } from './types.js';
  *   - spread children `[...base, ...feature]` — variable following deferred.
  *   - dynamic path `path: getPath(...)` — skipped with warning per §4.7.2.
  */
-export function extractRoutes(
+export async function extractRoutes(
   sites: DiscoveredConfigSite[],
   resolver: TsResolver,
-): RouteEntry[] {
+): Promise<RouteEntry[]> {
   const out: RouteEntry[] = [];
+  const evaluator = new ConstantEvaluator(resolver);
   for (const site of sites) {
     for (const element of site.routesArray.elements) {
       if (!element || element.type !== 'ObjectExpression') continue;
-      walk(element, '', site.file, resolver, out);
+      await walk(element, '', site.file, resolver, evaluator, out);
     }
   }
   return out;
 }
 
-function walk(
+async function walk(
   routeObject: TSESTree.ObjectExpression,
   parentPath: string,
   file: ParsedFile,
   resolver: TsResolver,
+  evaluator: ConstantEvaluator,
   out: RouteEntry[],
-): void {
+): Promise<void> {
   let pathSegment: string | null = null;
-  let pathIsDynamic = false;
+  let pathWarning: string | null = null;
   let pageSpec: PageSpec = { kind: 'none' };
   let childrenArray: TSESTree.ArrayExpression | null = null;
 
@@ -52,10 +55,20 @@ function walk(
     const name = prop.key.name;
 
     if (name === 'path') {
+      // String literal — fast path.
       if (prop.value.type === 'Literal' && typeof prop.value.value === 'string') {
         pathSegment = prop.value.value;
       } else {
-        pathIsDynamic = true;
+        // Try PF2.4: identifier / member-expression constant evaluation
+        // (local + cross-file, depth ≤ 5). Falls back to a typed warning
+        // when the expression isn't statically reducible (template lits,
+        // function calls, computed access).
+        const evald = await evaluator.evalStringConstant(prop.value, file);
+        if (evald.value !== null) {
+          pathSegment = evald.value;
+        } else {
+          pathWarning = evald.warning ?? 'dynamic-path-skipped';
+        }
       }
     } else if (name === 'element') {
       pageSpec = readElement(prop.value);
@@ -72,22 +85,23 @@ function walk(
     }
   }
 
-  const joinedPath = joinPath(parentPath, pathSegment);
+  const pathResolved = pathSegment !== null;
+  const joinedPath = pathResolved ? joinPath(parentPath, pathSegment) : parentPath;
   const warnings: string[] = [];
-  if (pathIsDynamic) {
-    warnings.push('dynamic-path-skipped');
+  if (!pathResolved && pathWarning) {
+    warnings.push(pathWarning);
   }
 
   let pageComponentFile: string | null = null;
   let pageComponentSymbol: string | null = null;
-  if (!pathIsDynamic) {
+  if (pathResolved) {
     const resolved = resolvePage(pageSpec, file, resolver);
     pageComponentFile = resolved.file;
     pageComponentSymbol = resolved.symbol;
     if (resolved.warning) warnings.push(resolved.warning);
   }
 
-  if (!pathIsDynamic) {
+  if (pathResolved) {
     out.push({
       path: joinedPath,
       configFilePath: file.file.relPath,
@@ -101,7 +115,7 @@ function walk(
   if (childrenArray) {
     for (const child of childrenArray.elements) {
       if (!child || child.type !== 'ObjectExpression') continue;
-      walk(child, joinedPath, file, resolver, out);
+      await walk(child, joinedPath, file, resolver, evaluator, out);
     }
   }
 }

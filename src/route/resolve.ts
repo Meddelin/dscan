@@ -19,13 +19,15 @@ export interface ResolveRoutesInput {
  * responsibility to tag as `{ kind: 'unsupported' }` at the record level;
  * here we simply return an empty byFile and empty entries.
  */
-export function resolveRoutes(input: ResolveRoutesInput): RouteResolution {
+export async function resolveRoutes(
+  input: ResolveRoutesInput,
+): Promise<RouteResolution> {
   const sites = discoverRouteConfigs(input.parsed);
   if (sites.length === 0) {
     return { byFile: new Map(), entries: [], warnings: [] };
   }
 
-  const entries = extractRoutes(sites, input.resolver);
+  const entries = await extractRoutes(sites, input.resolver);
   const warnings: RouteWarning[] = [];
   for (const e of entries) {
     for (const w of e.warnings) {

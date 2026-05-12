@@ -160,7 +160,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
       (perRepo.routeResolution?.enabled ?? config.routeResolution?.enabled ?? true) !==
       false;
     if (routeEnabled) {
-      const resolution = resolveRoutes({
+      const resolution = await resolveRoutes({
         parsed,
         resolver,
         depthLimit: config.routeResolution?.importGraphDepthLimit ?? 20,
