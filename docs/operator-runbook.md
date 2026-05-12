@@ -32,7 +32,7 @@ git clone git@github.com:Meddelin/dscan.git
 cd dscan
 npm install
 npm run typecheck    # sanity check
-npm test             # all 86 specs must pass
+npm test             # all 102 specs must pass
 ```
 
 ## Configure a run

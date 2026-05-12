@@ -4,6 +4,7 @@ import type { ParsedFile } from '../pipeline/parse.js';
 import type { DiscoveredConfigSite } from './discovery.js';
 import type { RouteEntry } from './types.js';
 import { ConstantEvaluator } from './constant-eval.js';
+import { MemberChaser } from './member-chaser.js';
 
 /**
  * Stage 7.2 (§4.7.2) — for every discovered route-array, extract
@@ -28,10 +29,11 @@ export async function extractRoutes(
 ): Promise<RouteEntry[]> {
   const out: RouteEntry[] = [];
   const evaluator = new ConstantEvaluator(resolver);
+  const chaser = new MemberChaser(resolver);
   for (const site of sites) {
     for (const element of site.routesArray.elements) {
       if (!element || element.type !== 'ObjectExpression') continue;
-      await walk(element, '', site.file, resolver, evaluator, out);
+      await walk(element, '', site.file, resolver, evaluator, chaser, out);
     }
   }
   return out;
@@ -43,6 +45,7 @@ async function walk(
   file: ParsedFile,
   resolver: TsResolver,
   evaluator: ConstantEvaluator,
+  chaser: MemberChaser,
   out: RouteEntry[],
 ): Promise<void> {
   let pathSegment: string | null = null;
@@ -99,6 +102,19 @@ async function walk(
     pageComponentFile = resolved.file;
     pageComponentSymbol = resolved.symbol;
     if (resolved.warning) warnings.push(resolved.warning);
+    // PF2.6: if the page resolves to a file (likely a barrel), chase the
+    // `export { X } from './Y'` chain to find the defining file. Depth
+    // capped at 3. No-op when already at the leaf — chaser returns the
+    // same path.
+    if (pageComponentFile && pageComponentSymbol) {
+      const tailSymbol = lastDotSegment(pageComponentSymbol);
+      const chased = await chaser.chaseDefiningFile(
+        pageComponentFile,
+        tailSymbol,
+      );
+      pageComponentFile = chased.absPath;
+      pageComponentSymbol = chased.symbol;
+    }
   }
 
   if (pathResolved) {
@@ -115,9 +131,14 @@ async function walk(
   if (childrenArray) {
     for (const child of childrenArray.elements) {
       if (!child || child.type !== 'ObjectExpression') continue;
-      await walk(child, joinedPath, file, resolver, evaluator, out);
+      await walk(child, joinedPath, file, resolver, evaluator, chaser, out);
     }
   }
+}
+
+function lastDotSegment(dotted: string): string {
+  const idx = dotted.lastIndexOf('.');
+  return idx === -1 ? dotted : dotted.slice(idx + 1);
 }
 
 type PageSpec =

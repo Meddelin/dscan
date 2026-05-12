@@ -17,11 +17,79 @@
 | M6a invariants + git clone + docs | `957b5a0` | ✅ |
 | Per-repo config optional | `79a3f7b` | ✅ |
 | Pilot fixes (parse / member-expr / wrapper / CLI / clone-repos) | `0e0a4b3` | ✅ |
+| PF2.1 absPath + mocks excludes + viewer reorder | (PF2 series) | ✅ |
+| PF2.2 sharedLibraries (cross-repo) | (PF2 series) | ✅ |
+| PF2.3 member-expr in route elements + import-graph re-exports | (PF2 series) | ✅ |
+| PF2.4 path-const evaluation (local + cross-file, depth=5) | (PF2 series) | ✅ |
+| PF2.5 deep wrapper nesting (depth=5, mixed wrapper+member-expr) | (PF2 series) | ✅ |
+| PF2.6 barrel chain to defining file (depth=3) | (PF2 series) | ✅ |
 | M6b worker pool | — | deferred |
 | M7 real dry-run + FP SLA | — | blocked on SSH access |
 
-86/86 vitest specs green across 6 test files. Smoke run on 16 fixtures
+102/102 vitest specs green across 6 test files. Smoke run on 20 fixtures
 produces zero invariant violations.
+
+## PF2 — Pilot Fixes Round 2 (2026-05-12)
+
+After a second developer pass against real T-Bank repos, eight items
+came back. All shipped as small commits in sequence.
+
+1. **PF2.1 — Warnings carry `absPath`, mocks excluded by default,
+   viewer reorders E first.** `Warning.absPath` is now populated by
+   parse + route + clone emitters. `DEFAULT_EXCLUDES` adds
+   `**/__mocks__/**`, `**/__fixtures__/**`, `**/mocks/**`,
+   `*.mock.*`, `*.fixture.*`. Viewer order: Hero → **E (per-route)**
+   → B → C → D — product teams read per-route first.
+
+2. **PF2.2 — `sharedLibraries` in global config.** Operators can
+   declare one libs set in `ds-scanner.config.ts` and have it apply
+   to every consumer repo. Per-repo `localLibraries` entries with the
+   same `libId` replace the shared entry entry-wise. New helper
+   trio in `src/prescan/local-lib.ts`: `ResolvedLibrary`,
+   `resolveLibraries`, `mergeLibraries`, `mergeRegistries`,
+   `prescanLibraries` (generic). `run.ts` runs shared prescan once
+   before the repo loop using `configDir` as base.
+
+3. **PF2.3 — Member-expression in route elements
+   (`element: <Pages.X/>`).** Route extractor's BFS over the JSX
+   tree now collects dotted tag names; `resolvePageCandidate` splits
+   on first dot, looks up the BASE binding, resolves its source.
+   Also bug-fixed `src/route/import-graph.ts` to walk
+   `ExportNamedDeclaration` + `ExportAllDeclaration` re-exports —
+   without that, barrel files had zero outbound graph edges and every
+   `<Pages.X/>` route collapsed to `unmapped`.
+
+4. **PF2.4 — Path-constant evaluation.** New `src/route/constant-eval.ts`
+   with `ConstantEvaluator`: handles direct identifier (`ROOT_PATH`),
+   single/nested member access (`ROUTER_PATHS.checkout.payment`),
+   cross-file imported objects (`@/router-paths`), and transparent TS
+   wrappers (`as const`, `satisfies`, `<T>x`, `expr!`). Depth limit
+   5, cycle detection. Template literals with substitutions warn
+   with `dynamic-path-template-literal`. Made
+   `extractRoutes`/`resolveRoutes` async to accommodate file I/O.
+
+5. **PF2.5 — Deep wrapper nesting with mixed candidate types.** The
+   JSX BFS gained an explicit depth cap of 5 and now selects the
+   first **in-repo** candidate from
+   `[wrapper, ...descendants]`, where descendants can be plain tags
+   OR member expressions. Realistic ErrorBoundary → AbilityGuard →
+   Layout → `<Pages.X/>` is covered.
+
+6. **PF2.6 — Barrel chain to defining file.** New
+   `src/route/member-chaser.ts`: after the initial resolve, walks
+   `export { X } from './Y'` and `export * from './Y'` re-exports
+   (depth 3, cycle detection) to find the file that actually OWNS
+   the symbol — so routes anchor to leaf files instead of the
+   barrel. Restores per-route binding precision: `<X.Dashboard/>`
+   and `<X.Settings/>` now bind to their own pages, not both to
+   `index.ts`.
+
+Six new fixtures: `fixture-mocks-excluded`,
+`fixture-uses-shared-lib` + `shared-kits/team-platform`,
+`fixture-route-member-expression`,
+`fixture-route-path-constants`,
+`fixture-route-deep-wrapper`,
+`fixture-route-shared-lib-page`. 16 new pipeline specs (102 total).
 
 ## Pilot-fixes (2026-04-25, commit `0e0a4b3`)
 

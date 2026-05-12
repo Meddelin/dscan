@@ -6,7 +6,7 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 
 ## Статус
 
-**MVP: M1–M6a + pilot-fixes.** Полный pipeline + Stage 7 route resolver + invariants + 5 багфиксов из первого реального прогона.
+**MVP: M1–M6a + pilot-fixes + PF2.** Полный pipeline + Stage 7 route resolver + invariants + два раунда багфиксов с боевых прогонов.
 
 | Stage | Статус |
 |-------|--------|
@@ -15,15 +15,15 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 | 3. Resolve | ✅ (TS compiler API, tsconfig paths) |
 | 4. Categorize | ✅ |
 | 5a. Beaver prescan | ✅ (git clone + re-export map depth=5) |
-| 5b. Local-lib prescan | ✅ |
+| 5b. Local-lib prescan | ✅ (per-repo + global `sharedLibraries`) |
 | 6. Classify Этап A | ✅ |
 | 6. Classify Этап B | ✅ (6 сигналов + 3 уровня + adoption-wrapper rules) |
 | 6.5. Member expressions `<NS.Comp/>` | ✅ |
-| 7. Route-Resolve | ✅ (React Router v6 data-router + wrapper-unwrap) |
+| 7. Route-Resolve | ✅ (React Router v6 + wrapper-unwrap depth=5 + path-const eval + member-expr + barrel chain depth=3) |
 | 8. Aggregate | метрики A/B/C/D/E + 7 из 9 инвариантов |
-| HTML Viewer | hero + B/C/D/E + shared components |
+| HTML Viewer | hero → **E (per-route)** → B → C → D |
 
-86/86 vitest specs · 16 фикстур · 0 warnings/invariant violations на smoke-прогоне.
+102/102 vitest specs · 22 фикстуры · smoke run: 20 repos / 58 files / 105 usages / 0 warnings.
 
 ## Установка
 

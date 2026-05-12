@@ -614,6 +614,32 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('route resolver — barrel chain to defining file (PF2.6)', () => {
+    let records: UsageRecord[];
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      ({ records } = await runOnFixture('fixture-route-shared-lib-page'));
+    });
+
+    it('binds SharedDashboard.tsx to /dashboard (not shared with /settings)', () => {
+      const dashBtn = records.find(
+        (r) =>
+          r.componentName === 'Button' &&
+          r.filePath === 'src/page-kit/SharedDashboard.tsx',
+      );
+      expect(dashBtn?.route).toEqual({ kind: 'bound', path: '/dashboard' });
+    });
+
+    it('binds SharedSettings.tsx to /settings', () => {
+      const settingsBtn = records.find(
+        (r) =>
+          r.componentName === 'Button' &&
+          r.filePath === 'src/page-kit/SharedSettings.tsx',
+      );
+      expect(settingsBtn?.route).toEqual({ kind: 'bound', path: '/settings' });
+    });
+  });
+
   describe('route resolver — deep wrapper nesting (PF2.5)', () => {
     let records: UsageRecord[];
     beforeAll(async () => {

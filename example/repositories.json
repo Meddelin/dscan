@@ -73,5 +73,30 @@
     "name": "fixture-route-wrapped-element",
     "gitUrl": "ssh://git@localhost/fixture-route-wrapped-element.git",
     "localPath": "../tests/fixtures/fixture-route-wrapped-element"
+  },
+  {
+    "name": "fixture-mocks-excluded",
+    "gitUrl": "ssh://git@localhost/fixture-mocks-excluded.git",
+    "localPath": "../tests/fixtures/fixture-mocks-excluded"
+  },
+  {
+    "name": "fixture-route-member-expression",
+    "gitUrl": "ssh://git@localhost/fixture-route-member-expression.git",
+    "localPath": "../tests/fixtures/fixture-route-member-expression"
+  },
+  {
+    "name": "fixture-route-path-constants",
+    "gitUrl": "ssh://git@localhost/fixture-route-path-constants.git",
+    "localPath": "../tests/fixtures/fixture-route-path-constants"
+  },
+  {
+    "name": "fixture-route-deep-wrapper",
+    "gitUrl": "ssh://git@localhost/fixture-route-deep-wrapper.git",
+    "localPath": "../tests/fixtures/fixture-route-deep-wrapper"
+  },
+  {
+    "name": "fixture-route-shared-lib-page",
+    "gitUrl": "ssh://git@localhost/fixture-route-shared-lib-page.git",
+    "localPath": "../tests/fixtures/fixture-route-shared-lib-page"
   }
 ]
