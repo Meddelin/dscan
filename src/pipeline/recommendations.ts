@@ -104,8 +104,8 @@ export function generateRecommendations(
       priority: 'medium',
       title: `Тюнинг порогов: ${possibleCount} possible vs ${confirmedCount} confirmed`,
       rationale:
-        `Доля «possible» уровней shadow велика — детекция шумит. После 50-компонентного ` +
-        `FP-review (PRD §10.3) подними substantialMarkupElements или сузь primitiveNames per-repo.`,
+        `Доля «possible» уровней shadow велика — детекция шумит. После ручного ` +
+        `false-positive-review подними substantialMarkupElements или сузь primitiveNames per-repo.`,
       evidence: {},
     });
   }

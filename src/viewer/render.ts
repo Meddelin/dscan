@@ -3,27 +3,27 @@ import { dirname } from 'node:path';
 import type { Aggregates } from '../types/dataset.js';
 
 /**
- * Self-contained interactive HTML report (PF4).
+ * Self-contained interactive HTML report.
  *
- * One file, inline CSS/JS, aggregates injected as a JS object — no fetch.
+ * One file, inline CSS/JS, aggregates injected as a JS object — no fetch,
+ * no external network. Sections:
  *
- * On top of the existing per-table filter/sort/pagination system this adds:
- *   - persona toggle (Команда / Exec / Дизайнер / Разработчик) → CSS classes
- *     hide / dim sections appropriate to each audience. Default = «Команда».
- *   - auto-narrative summary derived from aggregates (one headline + bullets).
- *   - auto-recommendations card driven by `aggregates.recommendations`
- *     (generated upstream in `src/pipeline/recommendations.ts`).
- *   - inline SVG visualisations: bucket distribution donut + top-shadow Pareto.
- *   - methodology + FAQ + glossary popovers so a fresh viewer can answer
- *     «что значит adoption?», «почему этот компонент classified shadow?»,
- *     «какие пороги use'ются?» without leaving the file.
- *   - permalink: persona + active table filters round-trip through URL hash.
+ *   - Hero: четыре ключевых числа (adoption, среднее по репо,
+ *     shadow-групп, Beaver-пакетов). Клик по карточке → модалка с формулой.
+ *   - Сводка: автоматически собранный headline + 2–3 bullet'а.
+ *   - Рекомендации: что делать первым, с раскрывающейся детализацией
+ *     (полные списки репо / пакетов / компонентов).
+ *   - Визуализация: donut по bucket'ам и Pareto топ-10 shadow.
+ *   - Таблицы: маршруты, репо, shadow, покрытие, shared. У каждой —
+ *     поиск, сортировка, пагинация, экспорт в CSV.
+ *   - Методология + FAQ + глоссарий: чтобы фрешевый зритель ответил
+ *     «что такое shadow», «как считается adoption» прямо в файле.
+ *   - Проверки данных: статус инвариантов в человеческой формулировке.
  *
- * Engineering-side considerations:
- *   - JSON injection escapes `<`, `>`, `&`, U+2028, U+2029 (XSS / JS-parse
- *     safety inside <script>).
- *   - No external network — everything inlined. Report stays portable.
- *   - Existing table controller (filter/sort/pagination) reused unchanged.
+ * Инженерные детали:
+ *   - JSON-инъекция экранирует `<`, `>`, `&`, U+2028, U+2029.
+ *   - createTable использует mount+paint: фильтр-инпут строится один раз
+ *     и не пересоздаётся, чтобы не сбивать фокус при печати.
  */
 export function renderReport(aggregates: Aggregates): string {
   const json = JSON.stringify(aggregates);
@@ -42,37 +42,37 @@ export function renderReport(aggregates: Aggregates): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>${CSS}</style>
 </head>
-<body data-persona="team">
+<body>
 <main id="app">
   <header class="page-header">
     <div class="brand">
       <span class="brand-mark">BEAVER</span>
       <span class="brand-sub">Adoption Scanner</span>
     </div>
-    <div class="header-controls">
-      <div class="persona-toggle" role="tablist" aria-label="Аудитория">
-        <button class="persona-btn active" data-persona="team" role="tab" title="Дефолт: всё показано, эмфаза на действия">Команда</button>
-        <button class="persona-btn" data-persona="exec" role="tab" title="Только метрики и рекомендации">Exec</button>
-        <button class="persona-btn" data-persona="designer" role="tab" title="Shadow по компонентам, без файлового шума">Дизайнер</button>
-        <button class="persona-btn" data-persona="developer" role="tab" title="Все таблицы, файлы, инварианты">Разработчик</button>
-      </div>
-      <button class="permalink-btn" id="permalink-btn" title="Скопировать ссылку на текущий вид">🔗 Ссылка</button>
-    </div>
     <div class="meta" id="meta"></div>
   </header>
 
-  <section class="onboarding" id="onboarding">
-    <div class="onboarding-head">
-      <h3>Как читать этот отчёт</h3>
-      <button class="toggle" id="onboarding-close" aria-label="Скрыть">×</button>
+  <section class="hero">
+    <div class="hero-card" data-metric="adoption" tabindex="0" role="button">
+      <div class="hero-label">Adoption <span class="info-pill" data-glossary="adoption">?</span></div>
+      <div class="hero-value" id="metric-adoption">—</div>
+      <div class="hero-hint">из всех «решённых» юзеджей — доля Beaver</div>
     </div>
-    <ol class="onboarding-steps">
-      <li><strong>Сверху — четыре метрики A/B/C/D.</strong> A = насколько в коде используется Beaver, C = сколько компонентов «переизобретено». Клик по карточке откроет формулу.</li>
-      <li><strong>Сразу под ними — что делать.</strong> Карточка «Что советует сканер» = операторские рекомендации с приоритетами.</li>
-      <li><strong>Дальше — таблицы.</strong> Adoption по маршрутам (E), по репо (B), карта shadow (C), покрытие пакетов (D), shared-компоненты.</li>
-      <li><strong>В каждой таблице есть фильтр, сортировка и пагинация.</strong> Клик по столбцу — сортировка. Поле «Фильтр…» — поиск по всем колонкам.</li>
-      <li><strong>Снизу — методология и FAQ.</strong> Что такое «shadow», как считается adoption, почему этот компонент попал в categories.</li>
-    </ol>
+    <div class="hero-card" data-metric="perRepo" tabindex="0" role="button">
+      <div class="hero-label">Среднее по репо</div>
+      <div class="hero-value" id="metric-per-repo">—</div>
+      <div class="hero-hint">репо весят одинаково, монорепо не доминирует</div>
+    </div>
+    <div class="hero-card" data-metric="shadow" tabindex="0" role="button">
+      <div class="hero-label">Shadow-компонентов <span class="info-pill" data-glossary="shadow">?</span></div>
+      <div class="hero-value" id="metric-shadow">—</div>
+      <div class="hero-hint">переизобретений Beaver-примитивов</div>
+    </div>
+    <div class="hero-card" data-metric="packages" tabindex="0" role="button">
+      <div class="hero-label">Beaver-пакетов в коде</div>
+      <div class="hero-value" id="metric-packages">—</div>
+      <div class="hero-hint">сколько разных пакетов реально используется</div>
+    </div>
   </section>
 
   <section class="narrative" id="narrative">
@@ -86,122 +86,109 @@ export function renderReport(aggregates: Aggregates): string {
       <span class="muted" id="recs-count"></span>
     </div>
     <p class="muted">
-      Рекомендации генерируются автоматически по агрегатам (см. <code>recommendations</code>
-      в конфиге). Это не план миграции — это подсказка, куда смотреть первым.
+      Подсказки, куда смотреть первым. Сортировка по приоритету: красный
+      кружок — действовать сейчас, жёлтый — на следующей неделе, синий —
+      когда руки дойдут. Кнопка «Показать все…» под рекомендацией разворачивает
+      полный список репо или пакетов.
     </p>
     <div id="recs-list"></div>
   </section>
 
-  <section class="hero">
-    <div class="hero-card" data-metric="A" tabindex="0" role="button">
-      <div class="hero-label">A — Общий adoption <span class="info-pill" data-glossary="adoption">?</span></div>
-      <div class="hero-value" id="metric-a">—</div>
-      <div class="hero-hint">adoption / (adoption + shadow)</div>
-    </div>
-    <div class="hero-card" data-metric="B" tabindex="0" role="button">
-      <div class="hero-label">B — Среднее по репо</div>
-      <div class="hero-value" id="metric-b">—</div>
-      <div class="hero-hint">невзвешенное по сканированным репо</div>
-    </div>
-    <div class="hero-card" data-metric="C" tabindex="0" role="button">
-      <div class="hero-label">C — Confirmed shadow <span class="info-pill" data-glossary="shadow">?</span></div>
-      <div class="hero-value" id="metric-c">—</div>
-      <div class="hero-hint">различных групп shadow-компонентов</div>
-    </div>
-    <div class="hero-card" data-metric="D" tabindex="0" role="button">
-      <div class="hero-label">D — Beaver-пакетов</div>
-      <div class="hero-value" id="metric-d">—</div>
-      <div class="hero-hint">уникальных пакетов в импортах</div>
-    </div>
-  </section>
-
   <section class="panel viz-panel" id="panel-viz">
     <div class="panel-head">
-      <h2>Распределение usage'ей <span class="info-pill" data-glossary="bucket">?</span></h2>
+      <h2>Распределение использований <span class="info-pill" data-glossary="bucket">?</span></h2>
     </div>
     <div class="viz-grid">
       <div class="viz-cell">
-        <h4>Bucket-распределение</h4>
+        <h4>Категории всех юзеджей</h4>
         <div id="donut-host"></div>
       </div>
       <div class="viz-cell">
-        <h4>Топ-10 shadow по числу usage'ей</h4>
+        <h4>Топ-10 shadow по числу использований</h4>
         <div id="pareto-host"></div>
       </div>
     </div>
   </section>
 
   <section class="panel" id="panel-per-route">
-    <div class="panel-head">
-      <h2>E — Adoption по маршрутам</h2>
-    </div>
+    <h2>Adoption по маршрутам</h2>
     <p class="muted">
-      Adoption по парам (репо, маршрут). В знаменатель идут только usage'и из файлов,
-      привязанных ровно к одному маршруту (PRD §7.5). Эту секцию показываем первой —
-      продуктовые команды думают о adoption через маршруты:
-      «/checkout хуже, чем /admin» проще понять, чем «adoption 67%».
+      Adoption по парам «репо + маршрут». В знаменатель идут только юзеджи из
+      файлов, привязанных к одному конкретному маршруту. Продуктовым
+      командам так удобнее: «<code>/checkout</code> хуже, чем <code>/admin</code>»
+      понять проще, чем «adoption 67%».
     </p>
     <div class="table-host" data-table="per-route"></div>
   </section>
 
   <section class="panel" id="panel-per-repo">
-    <h2>B — Adoption по репо</h2>
+    <h2>Adoption по репозиториям</h2>
+    <p class="muted">
+      Кому нужно внимание первым. Отсортируй по adoption — внизу таблицы
+      будут репо-аутсайдеры, кандидаты на pre-pilot встречу.
+    </p>
     <div class="table-host" data-table="per-repo"></div>
   </section>
 
   <section class="panel" id="panel-shadow">
     <div class="panel-head">
-      <h2>C — Карта shadow-компонентов <span class="info-pill" data-glossary="shadow-level">?</span></h2>
+      <h2>Карта shadow-компонентов <span class="info-pill" data-glossary="shadow-level">?</span></h2>
       <div class="tabs" role="tablist">
         <button class="tab active" data-view="byComponent" role="tab">По компонентам</button>
         <button class="tab" data-view="byFile" role="tab">По файлам</button>
       </div>
     </div>
     <p class="muted">
-      По компонентам — дефолтный вид. Одна строка = одна группа
-      (имя + сигнатура пропсов + диапазон markup-размера). Используй для решения
-      «какой компонент добавить в Beaver». Переключи на «По файлам» когда уже
-      решил мигрировать и нужны конкретные файлы.
+      «По компонентам» — для стратегии: какой shadow добавить в Beaver,
+      чтобы убить N миграций одной строкой. «По файлам» — когда уже решил
+      мигрировать и нужны конкретные пути.
     </p>
     <div class="table-host" data-table="shadow-component"></div>
     <div class="table-host hidden" data-table="shadow-file"></div>
   </section>
 
   <section class="panel" id="panel-coverage">
-    <h2>D — Покрытие Beaver-пакетов</h2>
+    <h2>Покрытие Beaver-пакетов</h2>
+    <p class="muted">
+      Маленькое число в колонке «Репо» = пакет недопромоушен.
+      Маленькое «Использований» — возможно, кандидат на deprecate.
+    </p>
     <div class="table-host" data-table="coverage"></div>
   </section>
 
   <section class="panel" id="panel-shared">
     <h2>Shared-компоненты <span class="info-pill" data-glossary="shared">?</span></h2>
     <p class="muted">
-      Файлы, достижимые от двух и более page-компонентов. Эти usage'и не идут
-      в знаменатель метрики E (§7.5), но важны для adoption-стратегии:
-      переписать один хедер дешевле, чем 30 страниц.
+      Файлы, достижимые из нескольких страниц (хедеры, общие layout'ы).
+      Эти юзеджи не идут в знаменатель «Adoption по маршрутам» — но важны
+      стратегически: переписать один общий хедер дешевле, чем 30 страниц.
     </p>
     <div class="table-host" data-table="shared"></div>
   </section>
 
   <section class="panel methodology" id="panel-methodology">
-    <h2>Методология</h2>
+    <h2>Как сканер считает</h2>
     <p class="muted">
-      Восемь стадий конвейера — от дискавери файлов до агрегации. Каждый usage
-      проходит классификацию: <code>adoption</code> (импорт из Beaver и без кастомизации),
-      <code>shadow</code> (локальный реимпорт с признаками примитива), <code>neither</code>
-      (ни то, ни другое — например, чужая либа).
+      Каждое JSX-использование компонента сканер кладёт в одну из трёх
+      категорий: <strong class="bucket-text-adoption">adoption</strong> (импорт
+      из Beaver и без кастомизации), <strong class="bucket-text-shadow">shadow</strong>
+      (локальный или чужой компонент, который выполняет роль Beaver-примитива),
+      <strong class="bucket-text-neither">neither</strong> (бизнес-компоненты,
+      чужие либы без признаков примитива). Дальше из этих категорий считаются
+      все метрики.
     </p>
     <div class="pipeline">
-      <div class="stage"><strong>1. Discovery</strong><span>Найти .tsx/.jsx/.ts/.js, исключить mocks/tests/storybook</span></div>
-      <div class="stage"><strong>2. Parse</strong><span>AST → JSX usage + imports (typescript-estree)</span></div>
-      <div class="stage"><strong>3. Resolve</strong><span>Импорт → канонический путь через tsconfig paths</span></div>
-      <div class="stage"><strong>4. Categorize</strong><span>Beaver / local-lib / external / dynamic</span></div>
-      <div class="stage"><strong>5. Prescan-Join</strong><span>Соединить с реестром Beaver-пакетов</span></div>
-      <div class="stage"><strong>6. Classify</strong><span>Pass-A (профили) → Pass-B (signals) → bucket + level</span></div>
-      <div class="stage"><strong>7. Route-Resolve</strong><span>File → reachableSet(page) → bound/shared/unmapped</span></div>
-      <div class="stage"><strong>8. Aggregate</strong><span>Метрики A–E, инварианты, рекомендации</span></div>
+      <div class="stage"><strong>1. Поиск файлов</strong><span>.tsx / .jsx / .ts / .js, без mocks и тестов</span></div>
+      <div class="stage"><strong>2. Парсинг</strong><span>AST: где какой компонент использован и откуда импортирован</span></div>
+      <div class="stage"><strong>3. Резолв</strong><span>Импорт → реальный путь, через tsconfig и алиасы</span></div>
+      <div class="stage"><strong>4. Категоризация</strong><span>Импорт ведёт в Beaver / локальную либу / наружу / динамика</span></div>
+      <div class="stage"><strong>5. Свод с реестром</strong><span>Локальные либы, которые re-export'ят Beaver, канонизируются</span></div>
+      <div class="stage"><strong>6. Классификация</strong><span>Каждый юзедж → adoption / shadow / neither</span></div>
+      <div class="stage"><strong>7. Маршруты</strong><span>Файл → страница: bound, shared или unmapped</span></div>
+      <div class="stage"><strong>8. Метрики</strong><span>Adoption, среднее по репо, shadow-группы, рекомендации</span></div>
     </div>
     <p class="muted small">
-      Подробное описание формул и порогов — в <code>docs/руководство.md</code> и PRD §3–§7.
+      Полное описание формул и порогов — в <code>docs/руководство.md</code>.
     </p>
   </section>
 
@@ -212,10 +199,10 @@ export function renderReport(aggregates: Aggregates): string {
 
   <section class="panel footnote" id="panel-warnings">
     <div class="panel-head">
-      <h2>Предупреждения и инварианты</h2>
-      <button class="toggle" id="warnings-toggle" aria-expanded="false">Развернуть</button>
+      <h2>Проверки данных</h2>
+      <button class="toggle" id="warnings-toggle" aria-expanded="false">—</button>
     </div>
-    <p><strong>Инварианты:</strong> <span id="invariants-summary">—</span></p>
+    <p id="invariants-summary" class="checks-summary">—</p>
     <div id="warnings-body" class="hidden">
       <div id="violations-block"></div>
       <div id="warnings-list-host"></div>
@@ -237,8 +224,6 @@ export function renderReport(aggregates: Aggregates): string {
   <h4 id="glossary-title"></h4>
   <div id="glossary-body"></div>
 </div>
-
-<div class="toast hidden" id="toast"></div>
 
 <script>
 const DATA = ${escaped};
@@ -281,56 +266,17 @@ h4 { font-size: 12px; font-weight: 600; color: var(--fg-dim);
   text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 12px; }
 code { font-family: var(--mono); font-size: 12px; background: var(--bg);
   padding: 1px 5px; border-radius: 3px; border: 1px solid var(--panel-border); }
-.page-header { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto;
-  row-gap: 12px; column-gap: 24px; align-items: center;
+.page-header { display: flex; justify-content: space-between; align-items: flex-end;
   padding-bottom: 24px; border-bottom: 1px solid var(--panel-border); margin-bottom: 24px;
+  flex-wrap: wrap; gap: 16px;
 }
-.brand { grid-column: 1; grid-row: 1 / span 2; }
 .brand-mark { font-family: var(--mono); font-size: 22px; font-weight: 700;
   letter-spacing: 0.1em; color: var(--accent); display: block; }
 .brand-sub { font-size: 12px; color: var(--fg-dim); letter-spacing: 0.1em;
   text-transform: uppercase; }
-.header-controls { grid-column: 2; grid-row: 1; display: flex; gap: 12px;
-  justify-content: flex-end; align-items: center; flex-wrap: wrap; }
-.persona-toggle { display: flex; gap: 2px; background: var(--bg); padding: 3px;
-  border-radius: 6px; border: 1px solid var(--panel-border); }
-.persona-btn { background: transparent; color: var(--fg-dim); border: 0; cursor: pointer;
-  padding: 6px 12px; font-size: 12px; border-radius: 4px; font-family: inherit;
-  letter-spacing: 0.02em; }
-.persona-btn:hover { color: var(--fg); }
-.persona-btn.active { background: var(--accent-soft); color: var(--accent); }
-.permalink-btn { background: var(--bg); color: var(--fg-dim); border: 1px solid var(--panel-border);
-  cursor: pointer; padding: 6px 10px; font-size: 12px; border-radius: 4px;
-  font-family: inherit; }
-.permalink-btn:hover { color: var(--fg); border-color: var(--accent); }
-.meta { grid-column: 2; grid-row: 2; font-family: var(--mono); font-size: 12px;
-  color: var(--fg-dim); text-align: right; line-height: 1.7; }
+.meta { font-family: var(--mono); font-size: 12px; color: var(--fg-dim);
+  text-align: right; line-height: 1.7; }
 .meta strong { color: var(--fg); font-weight: 600; }
-
-@media (max-width: 720px) {
-  .page-header { grid-template-columns: 1fr; }
-  .brand, .header-controls, .meta { grid-column: 1; grid-row: auto; text-align: left;
-    justify-content: flex-start; }
-}
-
-.onboarding { background: linear-gradient(135deg, rgba(244, 169, 74, 0.08), rgba(106, 166, 232, 0.05));
-  border: 1px solid var(--panel-border); border-radius: 8px;
-  padding: 20px 24px; margin-bottom: 24px; }
-.onboarding-head { display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 12px; }
-.onboarding-head h3 { margin: 0; }
-.onboarding-steps { margin: 0; padding-left: 20px; color: var(--fg); font-size: 13px;
-  line-height: 1.8; }
-.onboarding-steps li { margin-bottom: 4px; }
-.onboarding.dismissed { display: none; }
-
-.narrative { background: var(--panel); border: 1px solid var(--panel-border);
-  border-left: 3px solid var(--accent); border-radius: 8px;
-  padding: 20px 24px; margin-bottom: 24px; }
-.narrative h3 { font-size: 16px; margin-bottom: 12px; line-height: 1.4; }
-.narrative ul { margin: 0; padding-left: 20px; color: var(--fg-dim); font-size: 13px;
-  line-height: 1.8; }
-.narrative ul li strong { color: var(--fg); }
 
 .hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
 @media (max-width: 800px) { .hero { grid-template-columns: repeat(2, 1fr); } }
@@ -345,7 +291,15 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg);
   letter-spacing: 0.08em; display: flex; align-items: center; gap: 8px; }
 .hero-value { font-family: var(--mono); font-size: 32px; font-weight: 600;
   margin: 8px 0 4px; color: var(--fg); }
-.hero-hint { font-size: 11px; color: var(--fg-dim); font-family: var(--mono); }
+.hero-hint { font-size: 11px; color: var(--fg-dim); }
+
+.narrative { background: var(--panel); border: 1px solid var(--panel-border);
+  border-left: 3px solid var(--accent); border-radius: 8px;
+  padding: 20px 24px; margin-bottom: 24px; }
+.narrative h3 { font-size: 16px; margin-bottom: 12px; line-height: 1.4; }
+.narrative ul { margin: 0; padding-left: 20px; color: var(--fg-dim); font-size: 13px;
+  line-height: 1.8; }
+.narrative ul li strong { color: var(--fg); }
 
 .panel { background: var(--panel); border: 1px solid var(--panel-border);
   border-radius: 8px; padding: 20px 24px; margin-bottom: 24px; }
@@ -353,17 +307,29 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg);
   margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
 .panel-head h2 { margin: 0; display: flex; align-items: center; gap: 8px; }
 
-.recommendations .rec-card { display: flex; gap: 12px; padding: 12px 0;
+.recommendations .rec-card { display: flex; gap: 12px; padding: 14px 0;
   border-bottom: 1px solid var(--panel-border); }
 .recommendations .rec-card:last-child { border-bottom: 0; }
-.rec-priority { width: 8px; height: 8px; border-radius: 50%; margin-top: 8px;
+.rec-priority { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px;
   flex-shrink: 0; }
 .rec-priority.high { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
 .rec-priority.medium { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
 .rec-priority.low { background: var(--info); }
-.rec-body { flex: 1; }
+.rec-body { flex: 1; min-width: 0; }
 .rec-title { font-weight: 600; color: var(--fg); margin-bottom: 4px; font-size: 14px; }
 .rec-rationale { color: var(--fg-dim); font-size: 13px; line-height: 1.5; }
+.rec-expand { background: transparent; color: var(--accent); border: 0;
+  cursor: pointer; padding: 6px 0 2px; font-family: inherit; font-size: 12px;
+  text-decoration: underline; text-underline-offset: 3px; }
+.rec-expand:hover { color: var(--fg); }
+.rec-evidence { margin-top: 8px; padding: 10px 12px; background: var(--bg);
+  border-radius: 4px; border: 1px solid var(--panel-border);
+  display: flex; flex-wrap: wrap; gap: 6px; max-height: 280px; overflow-y: auto; }
+.ev-chip { font-family: var(--mono); font-size: 11px; color: var(--fg);
+  background: var(--panel); padding: 4px 8px; border-radius: 999px;
+  border: 1px solid var(--panel-border); display: inline-flex; align-items: center; gap: 6px; }
+.ev-chip code { background: transparent; border: 0; padding: 0; color: var(--fg); }
+.ev-pct { color: var(--fg-dim); font-size: 10px; }
 .rec-empty { color: var(--fg-dim); font-size: 13px; padding: 8px 0; }
 
 .viz-grid { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
@@ -399,6 +365,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg);
   cursor: pointer; padding: 4px 10px; font-size: 12px; border-radius: 4px;
   font-family: inherit; }
 .toggle:hover { color: var(--fg); }
+.toggle:disabled { opacity: 0.3; cursor: default; }
 
 .info-pill { display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 700;
@@ -467,9 +434,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg);
 .faq-a { color: var(--fg-dim); padding: 8px 0 4px; font-size: 13px;
   line-height: 1.6; display: none; }
 .faq-item.open .faq-a { display: block; }
-.faq-a code, .faq-a pre { background: var(--bg); }
-.faq-a pre { padding: 12px; border-radius: 4px; overflow-x: auto;
-  border: 1px solid var(--panel-border); font-size: 12px; }
+.faq-a code { background: var(--bg); }
 
 .modal { position: fixed; inset: 0; z-index: 100; display: flex;
   align-items: center; justify-content: center; padding: 20px; }
@@ -493,17 +458,13 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg);
 .glossary-pop.hidden { display: none; }
 .glossary-pop h4 { color: var(--accent); margin: 0 0 8px; font-size: 11px; }
 
-.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: var(--panel); border: 1px solid var(--accent); border-radius: 6px;
-  padding: 10px 16px; font-size: 13px; color: var(--fg); z-index: 110;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); transition: opacity 0.3s; }
-.toast.hidden { display: none; }
-.toast.fading { opacity: 0; }
-
 .hidden { display: none !important; }
 .muted { color: var(--fg-dim); font-size: 13px; margin: 0 0 12px; }
 .muted.small { font-size: 11px; }
 .footnote { font-size: 12px; }
+.checks-summary { font-size: 13px; margin: 0; }
+.checks-summary.ok { color: var(--good); }
+.checks-summary.bad { color: var(--bad); }
 .level-badge { display: inline-block; padding: 1px 8px; border-radius: 999px;
   font-size: 11px; font-family: var(--mono); letter-spacing: 0.02em; }
 .level-confirmed { background: rgba(230, 117, 102, 0.15); color: var(--bad); }
@@ -514,22 +475,14 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg);
 .bucket-adoption { background: rgba(91, 191, 126, 0.15); color: var(--good); }
 .bucket-shadow { background: rgba(230, 117, 102, 0.15); color: var(--bad); }
 .bucket-neither { background: rgba(154, 163, 178, 0.12); color: var(--fg-dim); }
+.bucket-text-adoption { color: var(--good); }
+.bucket-text-shadow { color: var(--bad); }
+.bucket-text-neither { color: var(--fg-dim); }
 .violation-row { font-family: var(--mono); font-size: 12px; color: var(--warn);
   padding: 4px 0; }
 .adoption-bar { display: inline-block; width: 80px; height: 6px; background: var(--bg);
   border-radius: 999px; overflow: hidden; margin-right: 8px; vertical-align: middle; }
 .adoption-bar > span { display: block; height: 100%; background: var(--good); }
-
-/* Persona modes — hide non-relevant sections per audience. */
-body[data-persona="exec"] #panel-shadow,
-body[data-persona="exec"] #panel-coverage,
-body[data-persona="exec"] #panel-shared,
-body[data-persona="exec"] #panel-warnings,
-body[data-persona="exec"] #panel-methodology { display: none; }
-body[data-persona="designer"] #panel-warnings,
-body[data-persona="designer"] #panel-coverage { display: none; }
-body[data-persona="designer"] #panel-shadow .tab[data-view="byFile"] { display: none; }
-body[data-persona="developer"] #onboarding { display: none; }
 `;
 
 const CLIENT_JS = `
@@ -554,21 +507,19 @@ function ruRepoPlural(n) {
 }
 function ruUsagePlural(n) {
   var m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return n + " usage";
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " usage'я";
-  return n + " usage'ей";
+  if (m10 === 1 && m100 !== 11) return n + " использование";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " использования";
+  return n + " использований";
 }
-function showToast(msg) {
-  var t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.remove('hidden', 'fading');
-  setTimeout(function () { t.classList.add('fading'); }, 1800);
-  setTimeout(function () { t.classList.add('hidden'); }, 2200);
+function ruEntriesPlural(n) {
+  var m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'запись';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'записи';
+  return 'записей';
 }
 
-// --- DataTable: reusable controller for filter/sort/pagination + CSV export ---
+// --- DataTable: filter input survives re-renders (mount + paint) ---
 function createTable(host, opts) {
-  // opts: { rows, columns, pageSize?, emptyText?, defaultSort?, csvName? }
   var state = {
     rows: opts.rows || [],
     columns: opts.columns,
@@ -586,7 +537,6 @@ function createTable(host, opts) {
     if (rendered === null || rendered === undefined) return '';
     return String(rendered).replace(/<[^>]+>/g, '').toLowerCase();
   }
-
   function filtered() {
     if (!state.filter) return state.rows;
     var q = state.filter.toLowerCase();
@@ -597,7 +547,6 @@ function createTable(host, opts) {
       return false;
     });
   }
-
   function sorted(rows) {
     if (!state.sortKey || state.sortDir === 0) return rows;
     var col = state.columns.filter(function (c) { return c.key === state.sortKey; })[0];
@@ -614,7 +563,6 @@ function createTable(host, opts) {
       return 0;
     });
   }
-
   function csvCell(s) {
     s = String(s == null ? '' : s).replace(/<[^>]+>/g, '');
     if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\\n') !== -1) {
@@ -645,45 +593,64 @@ function createTable(host, opts) {
     URL.revokeObjectURL(url);
   }
 
-  function render() {
+  // Build skeleton ONCE; filter input persists across re-renders.
+  var sizes = [50, 100, 250, 500, 0];
+  var sizeOpts = sizes.map(function (sz) {
+    var lbl = sz === 0 ? 'все' : String(sz);
+    return '<option value="' + sz + '">' + lbl + '</option>';
+  }).join('');
+  host.innerHTML =
+    '<div class="tbl-controls">' +
+      '<input class="tbl-filter" type="search" placeholder="Поиск по таблице…" />' +
+      '<span class="tbl-count"></span>' +
+      '<label>Строк на странице: <select class="tbl-pagesize">' + sizeOpts + '</select></label>' +
+      '<button class="csv-export" title="Скачать как CSV">⬇ CSV</button>' +
+    '</div>' +
+    '<div class="tbl-data"></div>';
+
+  var filterInput = host.querySelector('.tbl-filter');
+  var countEl = host.querySelector('.tbl-count');
+  var pageSizeSelect = host.querySelector('.tbl-pagesize');
+  var csvBtn = host.querySelector('.csv-export');
+  var dataEl = host.querySelector('.tbl-data');
+  pageSizeSelect.value = String(state.pageSize);
+
+  var debounceTimer = null;
+  filterInput.addEventListener('input', function (e) {
+    var val = e.target.value;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function () {
+      state.filter = val;
+      state.page = 0;
+      paint();
+    }, 150);
+  });
+  pageSizeSelect.addEventListener('change', function (e) {
+    state.pageSize = parseInt(e.target.value, 10);
+    state.page = 0;
+    paint();
+  });
+  csvBtn.addEventListener('click', exportCsv);
+
+  function paint() {
     var rows = sorted(filtered());
     var total = rows.length;
     var totalAll = state.rows.length;
-    var pageSize = state.pageSize === 0 ? total : state.pageSize;
-    var pages = pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+    countEl.textContent = state.filter
+      ? total + ' из ' + totalAll
+      : total + ' ' + ruEntriesPlural(total);
+
+    var pageSize = state.pageSize === 0 ? Math.max(total, 1) : state.pageSize;
+    var pages = Math.max(1, Math.ceil(total / pageSize));
     if (state.page >= pages) state.page = pages - 1;
     if (state.page < 0) state.page = 0;
-    var start = pageSize > 0 ? state.page * pageSize : 0;
-    var end = pageSize > 0 ? Math.min(start + pageSize, total) : total;
+    var start = state.page * pageSize;
+    var end = Math.min(start + pageSize, total);
     var visible = rows.slice(start, end);
 
     var html = '';
-    html += '<div class="tbl-controls">';
-    html += '<input class="tbl-filter" type="search" placeholder="Фильтр…" value="' +
-      escapeHtml(state.filter) + '" />';
-    html += '<span class="tbl-count">';
-    if (state.filter) {
-      html += escapeHtml(String(total)) + ' из ' + escapeHtml(String(totalAll));
-    } else {
-      html += escapeHtml(String(total)) + ' ' +
-        (total === 1 ? 'запись' : (total >= 2 && total <= 4 ? 'записи' : 'записей'));
-    }
-    html += '</span>';
-    html += '<label>Строк на странице: ';
-    html += '<select class="tbl-pagesize">';
-    var sizes = [50, 100, 250, 500, 0];
-    for (var i = 0; i < sizes.length; i++) {
-      var sz = sizes[i];
-      var sel = sz === state.pageSize ? ' selected' : '';
-      var lbl = sz === 0 ? 'все' : String(sz);
-      html += '<option value="' + sz + '"' + sel + '>' + lbl + '</option>';
-    }
-    html += '</select></label>';
-    html += '<button class="csv-export" title="Скачать CSV">⬇ CSV</button>';
-    html += '</div>';
-
     if (total === 0) {
-      html += '<div class="tbl-empty">' + escapeHtml(state.emptyText) + '</div>';
+      html = '<div class="tbl-empty">' + escapeHtml(state.emptyText) + '</div>';
     } else {
       html += '<table class="data-table"><thead><tr>';
       for (var c = 0; c < state.columns.length; c++) {
@@ -719,7 +686,6 @@ function createTable(host, opts) {
         html += '</tr>';
       }
       html += '</tbody></table>';
-
       if (pages > 1) {
         html += '<div class="tbl-pager">';
         html += '<button data-action="first"' + (state.page === 0 ? ' disabled' : '') + '>«</button>';
@@ -731,36 +697,12 @@ function createTable(host, opts) {
         html += '</div>';
       }
     }
-
-    host.innerHTML = html;
-    bindControls();
+    dataEl.innerHTML = html;
+    bindDataPart();
   }
 
-  function bindControls() {
-    var filterInput = host.querySelector('.tbl-filter');
-    if (filterInput) {
-      var debounceTimer = null;
-      filterInput.addEventListener('input', function (e) {
-        clearTimeout(debounceTimer);
-        var val = e.target.value;
-        debounceTimer = setTimeout(function () {
-          state.filter = val;
-          state.page = 0;
-          render();
-        }, 150);
-      });
-    }
-    var pageSizeSelect = host.querySelector('.tbl-pagesize');
-    if (pageSizeSelect) {
-      pageSizeSelect.addEventListener('change', function (e) {
-        state.pageSize = parseInt(e.target.value, 10);
-        state.page = 0;
-        render();
-      });
-    }
-    var csvBtn = host.querySelector('.csv-export');
-    if (csvBtn) csvBtn.addEventListener('click', exportCsv);
-    host.querySelectorAll('th.sortable').forEach(function (th) {
+  function bindDataPart() {
+    dataEl.querySelectorAll('th.sortable').forEach(function (th) {
       th.addEventListener('click', function () {
         var key = th.dataset.col;
         if (state.sortKey === key) {
@@ -770,102 +712,26 @@ function createTable(host, opts) {
           state.sortKey = key;
           state.sortDir = 1;
         }
-        render();
+        paint();
       });
     });
-    host.querySelectorAll('.tbl-pager button').forEach(function (btn) {
+    dataEl.querySelectorAll('.tbl-pager button').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var pages = Math.max(1, Math.ceil(filtered().length / (state.pageSize || 1)));
+        var pageSize = state.pageSize === 0 ? Math.max(filtered().length, 1) : state.pageSize;
+        var pages = Math.max(1, Math.ceil(filtered().length / pageSize));
         switch (btn.dataset.action) {
           case 'first': state.page = 0; break;
           case 'prev': state.page = Math.max(0, state.page - 1); break;
           case 'next': state.page = Math.min(pages - 1, state.page + 1); break;
           case 'last': state.page = pages - 1; break;
         }
-        render();
+        paint();
       });
     });
   }
 
-  render();
-  return { rerender: render };
-}
-
-// --- Persona controller ---
-function initPersona() {
-  var saved = null;
-  try { saved = localStorage.getItem('dscan-persona'); } catch (e) {}
-  var hash = parseHash();
-  var initial = hash.persona || saved || 'team';
-  applyPersona(initial);
-  document.querySelectorAll('.persona-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      applyPersona(btn.dataset.persona);
-    });
-  });
-}
-function applyPersona(p) {
-  document.body.setAttribute('data-persona', p);
-  document.querySelectorAll('.persona-btn').forEach(function (btn) {
-    btn.classList.toggle('active', btn.dataset.persona === p);
-  });
-  try { localStorage.setItem('dscan-persona', p); } catch (e) {}
-  updateHash({ persona: p === 'team' ? null : p });
-}
-
-// --- URL hash state ---
-function parseHash() {
-  var h = window.location.hash.replace(/^#/, '');
-  if (!h) return {};
-  var out = {};
-  h.split('&').forEach(function (kv) {
-    var idx = kv.indexOf('=');
-    if (idx === -1) return;
-    out[decodeURIComponent(kv.slice(0, idx))] = decodeURIComponent(kv.slice(idx + 1));
-  });
-  return out;
-}
-function updateHash(patch) {
-  var cur = parseHash();
-  Object.keys(patch).forEach(function (k) {
-    if (patch[k] === null || patch[k] === undefined) delete cur[k];
-    else cur[k] = patch[k];
-  });
-  var keys = Object.keys(cur);
-  if (keys.length === 0) {
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-  } else {
-    var s = keys.map(function (k) {
-      return encodeURIComponent(k) + '=' + encodeURIComponent(cur[k]);
-    }).join('&');
-    history.replaceState(null, '', '#' + s);
-  }
-}
-function initPermalink() {
-  var btn = document.getElementById('permalink-btn');
-  btn.addEventListener('click', function () {
-    var url = window.location.href;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function () {
-        showToast('Ссылка скопирована');
-      }, function () { showToast('Не удалось скопировать: ' + url); });
-    } else {
-      showToast('Ссылка: ' + url);
-    }
-  });
-}
-
-// --- Onboarding card ---
-function initOnboarding() {
-  var card = document.getElementById('onboarding');
-  var closeBtn = document.getElementById('onboarding-close');
-  var dismissed = false;
-  try { dismissed = localStorage.getItem('dscan-onboarding-dismissed') === '1'; } catch (e) {}
-  if (dismissed) card.classList.add('dismissed');
-  closeBtn.addEventListener('click', function () {
-    card.classList.add('dismissed');
-    try { localStorage.setItem('dscan-onboarding-dismissed', '1'); } catch (e) {}
-  });
+  paint();
+  return { rerender: paint };
 }
 
 // --- Header meta line ---
@@ -880,87 +746,20 @@ function renderMeta() {
     (m.scanDurationMs / 1000).toFixed(2) + 'с</div>';
 }
 
-// --- Narrative auto-summary ---
-function renderNarrative() {
-  var a = DATA.metrics.globalAdoption.value;
-  var perRepo = DATA.metrics.perRepoAdoption;
-  var meanB = perRepo.length > 0
-    ? perRepo.reduce(function (s, r) { return s + r.value; }, 0) / perRepo.length
-    : 0;
-  var topShadow = (DATA.metrics.shadowLandscape.byComponent || [])
-    .slice()
-    .sort(function (a, b) { return b.totalUsages - a.totalUsages; })[0];
-  var confirmedCount = DATA.metrics.shadowLandscape.byComponent
-    .filter(function (c) { return c.level === 'confirmed'; }).length;
-  var firstRec = (DATA.recommendations || [])[0];
-
-  var headline;
-  if (a >= 0.7) {
-    headline = 'Beaver доминирует — adoption ' + pct(a) + '. Фокус: дотюнить отстающие маршруты.';
-  } else if (a >= 0.4) {
-    headline = 'Adoption в середине (' + pct(a) + '). Главный рычаг — закрыть топ shadow-компонентов.';
-  } else if (a > 0) {
-    headline = 'Adoption низкий (' + pct(a) + '). Перед миграцией стоит понять, что переизобретено и почему.';
-  } else {
-    headline = 'Adoption нулевой — Beaver в коде не используется.';
-  }
-  document.getElementById('narrative-headline').textContent = headline;
-
-  var bullets = [];
-  bullets.push('<li><strong>Adoption A:</strong> ' + pct(a) +
-    ' · <strong>Среднее по репо B:</strong> ' + pct(meanB) +
-    ' (' + ruRepoPlural(perRepo.length) + ').</li>');
-  if (topShadow) {
-    bullets.push('<li><strong>Самый частый shadow:</strong> <code>' +
-      escapeHtml(topShadow.componentName) + '</code> — ' +
-      ruUsagePlural(topShadow.totalUsages) + ' в ' + ruRepoPlural(topShadow.reposCount) +
-      ', уровень ' + levelBadge(topShadow.level) + '.</li>');
-  }
-  bullets.push('<li><strong>Confirmed shadow-групп:</strong> ' + confirmedCount + ' (из ' +
-    DATA.metrics.shadowLandscape.byComponent.length + ' всего).</li>');
-  if (firstRec) {
-    bullets.push('<li><strong>Первый шаг:</strong> ' + escapeHtml(firstRec.title) + '.</li>');
-  }
-  document.getElementById('narrative-bullets').innerHTML = bullets.join('');
-}
-
-// --- Recommendations ---
-function renderRecommendations() {
-  var recs = DATA.recommendations || [];
-  var host = document.getElementById('recs-list');
-  var countEl = document.getElementById('recs-count');
-  countEl.textContent = recs.length === 0 ? 'нет рекомендаций' :
-    recs.length === 1 ? '1 рекомендация' :
-    (recs.length >= 2 && recs.length <= 4 ? recs.length + ' рекомендации' : recs.length + ' рекомендаций');
-  if (recs.length === 0) {
-    host.innerHTML = '<div class="rec-empty">Метрики выглядят нейтрально — сканер ничего конкретного не советует.</div>';
-    return;
-  }
-  host.innerHTML = recs.map(function (r) {
-    return '<div class="rec-card">' +
-      '<div class="rec-priority ' + escapeHtml(r.priority) + '"></div>' +
-      '<div class="rec-body">' +
-      '<div class="rec-title">' + escapeHtml(r.title) + '</div>' +
-      '<div class="rec-rationale">' + escapeHtml(r.rationale) + '</div>' +
-      '</div></div>';
-  }).join('');
-}
-
 // --- Hero metrics ---
 function renderHero() {
   var a = DATA.metrics.globalAdoption.value;
   var perRepo = DATA.metrics.perRepoAdoption;
-  var meanB = perRepo.length > 0
+  var meanRepo = perRepo.length > 0
     ? perRepo.reduce(function (s, r) { return s + r.value; }, 0) / perRepo.length
     : 0;
-  var confirmedGroups = DATA.metrics.shadowLandscape.byComponent
-    .filter(function (c) { return c.level === 'confirmed'; }).length;
+  var shadowGroups = DATA.metrics.shadowLandscape.byComponent.length;
   var packages = DATA.metrics.beaverCoverage.length;
 
-  document.getElementById('metric-a').textContent = pct(a);
-  document.getElementById('metric-b').textContent = pct(meanB);
-  document.getElementById('metric-c').textContent = String(confirmedGroups);
-  document.getElementById('metric-d').textContent = String(packages);
+  document.getElementById('metric-adoption').textContent = pct(a);
+  document.getElementById('metric-per-repo').textContent = pct(meanRepo);
+  document.getElementById('metric-shadow').textContent = String(shadowGroups);
+  document.getElementById('metric-packages').textContent = String(packages);
 
   document.querySelectorAll('.hero-card').forEach(function (card) {
     card.addEventListener('click', function () { openMetricModal(card.dataset.metric); });
@@ -970,47 +769,165 @@ function renderHero() {
   });
 }
 
-// --- Metric detail modal ---
+// --- Narrative ---
+function renderNarrative() {
+  var a = DATA.metrics.globalAdoption.value;
+  var perRepo = DATA.metrics.perRepoAdoption;
+  var topShadow = (DATA.metrics.shadowLandscape.byComponent || [])
+    .slice()
+    .sort(function (a, b) { return b.totalUsages - a.totalUsages; })[0];
+  var confirmedCount = DATA.metrics.shadowLandscape.byComponent
+    .filter(function (c) { return c.level === 'confirmed'; }).length;
+  var firstRec = (DATA.recommendations || [])[0];
+
+  var headline;
+  if (a >= 0.7) {
+    headline = 'Beaver уже доминирует — adoption ' + pct(a) + '. Дотюнить оставшиеся маршруты.';
+  } else if (a >= 0.4) {
+    headline = 'Adoption в середине (' + pct(a) + '). Главный рычаг — закрыть топ shadow-компонентов.';
+  } else if (a > 0) {
+    headline = 'Adoption низкий (' + pct(a) + '). Стоит сначала понять, что переизобретено и почему.';
+  } else {
+    headline = 'Adoption нулевой — Beaver в этих репо не используется.';
+  }
+  document.getElementById('narrative-headline').textContent = headline;
+
+  var bullets = [];
+  bullets.push('<li><strong>' + pct(a) + '</strong> юзеджей идут из Beaver, среднее по репо — <strong>' +
+    pct(perRepo.length ? perRepo.reduce(function (s, r) { return s + r.value; }, 0) / perRepo.length : 0) +
+    '</strong> по ' + ruRepoPlural(perRepo.length) + '.</li>');
+  if (topShadow) {
+    bullets.push('<li>Самый частый shadow: <code>' +
+      escapeHtml(topShadow.componentName) + '</code> — ' +
+      ruUsagePlural(topShadow.totalUsages) + ' в ' + ruRepoPlural(topShadow.reposCount) +
+      ' (уровень ' + levelBadge(topShadow.level) + ').</li>');
+  }
+  bullets.push('<li>Сильных shadow-групп (уровень <code>confirmed</code>): <strong>' + confirmedCount +
+    '</strong> из ' + DATA.metrics.shadowLandscape.byComponent.length + '.</li>');
+  if (firstRec) {
+    bullets.push('<li>Первый шаг по мнению сканера: <strong>' + escapeHtml(firstRec.title) + '</strong>.</li>');
+  }
+  document.getElementById('narrative-bullets').innerHTML = bullets.join('');
+}
+
+// --- Recommendations with expandable evidence ---
+function renderRecommendations() {
+  var recs = DATA.recommendations || [];
+  var host = document.getElementById('recs-list');
+  var countEl = document.getElementById('recs-count');
+  countEl.textContent =
+    recs.length === 0 ? 'нет рекомендаций' :
+    recs.length === 1 ? '1 рекомендация' :
+    (recs.length >= 2 && recs.length <= 4 ? recs.length + ' рекомендации' : recs.length + ' рекомендаций');
+  if (recs.length === 0) {
+    host.innerHTML = '<div class="rec-empty">Метрики выглядят нейтрально — сканер ничего конкретного не советует.</div>';
+    return;
+  }
+
+  // Build lookup tables for evidence enrichment.
+  var perRepoLookup = {};
+  DATA.metrics.perRepoAdoption.forEach(function (r) { perRepoLookup[r.repoId] = r.value; });
+  var coverageLookup = {};
+  DATA.metrics.beaverCoverage.forEach(function (p) { coverageLookup[p.package] = p; });
+
+  host.innerHTML = recs.map(function (r, idx) {
+    var evidenceHtml = '';
+    var expandLabel = null;
+    if (r.evidence && r.evidence.repoIds && r.evidence.repoIds.length > 0) {
+      expandLabel = 'Показать все ' + r.evidence.repoIds.length + ' ' + ruRepoPlural(r.evidence.repoIds.length).replace(/^\\d+\\s/, '');
+      evidenceHtml = r.evidence.repoIds.map(function (id) {
+        var v = perRepoLookup[id];
+        return '<span class="ev-chip"><code>' + escapeHtml(id) + '</code>' +
+          (v !== undefined ? '<span class="ev-pct">' + pct(v) + '</span>' : '') +
+          '</span>';
+      }).join('');
+    } else if (r.evidence && r.evidence.packages && r.evidence.packages.length > 0) {
+      expandLabel = 'Показать все ' + r.evidence.packages.length + ' ' +
+        (r.evidence.packages.length === 1 ? 'пакет' :
+          (r.evidence.packages.length >= 2 && r.evidence.packages.length <= 4 ? 'пакета' : 'пакетов'));
+      evidenceHtml = r.evidence.packages.map(function (pkg) {
+        var c = coverageLookup[pkg];
+        var pct_label = c ? c.reposUsing + ' репо · ' + c.instances + ' исп.' : '';
+        return '<span class="ev-chip"><code>' + escapeHtml(pkg) + '</code>' +
+          (pct_label ? '<span class="ev-pct">' + escapeHtml(pct_label) + '</span>' : '') +
+          '</span>';
+      }).join('');
+    } else if (r.evidence && r.evidence.shadowGroupKeys && r.evidence.shadowGroupKeys.length > 0) {
+      // For add-to-beaver: look up the group, show its stats.
+      var byKey = {};
+      DATA.metrics.shadowLandscape.byComponent.forEach(function (g) { byKey[g.groupKey] = g; });
+      var groups = r.evidence.shadowGroupKeys.map(function (k) { return byKey[k]; }).filter(Boolean);
+      if (groups.length > 0) {
+        expandLabel = 'Подробнее о группе';
+        evidenceHtml = groups.map(function (g) {
+          return '<span class="ev-chip"><code>' + escapeHtml(g.componentName) + '</code>' +
+            '<span class="ev-pct">' + g.reposCount + ' репо · ' + g.totalUsages + ' исп · ' + g.level + '</span>' +
+            '</span>';
+        }).join('');
+      }
+    }
+
+    return '<div class="rec-card">' +
+      '<div class="rec-priority ' + escapeHtml(r.priority) + '"></div>' +
+      '<div class="rec-body">' +
+      '<div class="rec-title">' + escapeHtml(r.title) + '</div>' +
+      '<div class="rec-rationale">' + escapeHtml(r.rationale) + '</div>' +
+      (expandLabel
+        ? '<button class="rec-expand" data-i="' + idx + '" data-label="' + escapeHtml(expandLabel) + '">' + escapeHtml(expandLabel) + '</button>' +
+          '<div class="rec-evidence hidden">' + evidenceHtml + '</div>'
+        : '') +
+      '</div></div>';
+  }).join('');
+
+  host.querySelectorAll('.rec-expand').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var ev = btn.nextElementSibling;
+      var willOpen = ev.classList.contains('hidden');
+      ev.classList.toggle('hidden');
+      btn.textContent = willOpen ? 'Скрыть' : btn.dataset.label;
+    });
+  });
+}
+
+// --- Metric modal ---
 var METRIC_DEFS = {
-  A: {
-    title: 'Метрика A — Общий adoption',
-    formula: 'A = adoptionInstances / (adoptionInstances + shadowInstances)',
+  adoption: {
+    title: 'Общий adoption',
+    formula: 'adoption / (adoption + shadow)',
     body: function () {
-      var f = DATA.metrics.globalAdoption.formula || '';
-      return '<p>Глобальный показатель: какая доля «решённых» usage\\'ей идёт из Beaver, а не из shadow-компонентов. <code>neither</code>-usage\\'и в знаменатель НЕ идут (PRD §7.1).</p>' +
-        '<p>Текущая формула на этих данных:</p><code>' + escapeHtml(f) + '</code>' +
-        '<p>Значение: <strong>' + pct(DATA.metrics.globalAdoption.value) + '</strong>.</p>';
+      return '<p>Какая доля «решённых» использований идёт из Beaver, а не из локальных shadow-альтернатив. Использования из чужих библиотек (<code>neither</code>) в знаменатель не попадают — они просто «не наша зона ответственности».</p>' +
+        '<p>Значение сейчас: <strong>' + pct(DATA.metrics.globalAdoption.value) + '</strong>.</p>';
     }
   },
-  B: {
-    title: 'Метрика B — Среднее по репо',
-    formula: 'B = mean(A_repo) — невзвешенное среднее',
+  perRepo: {
+    title: 'Среднее adoption по репозиториям',
+    formula: 'mean(adoption_repo) — невзвешенное',
     body: function () {
       var perRepo = DATA.metrics.perRepoAdoption;
       var mean = perRepo.length ? perRepo.reduce(function (s, r) { return s + r.value; }, 0) / perRepo.length : 0;
-      return '<p>Невзвешенное среднее adoption по сканированным репо. Маленькие репо весят столько же, сколько большие — это специально, иначе монорепо доминировало бы (PRD §7.2).</p>' +
+      return '<p>Невзвешенное среднее: маленькие репо весят столько же, сколько большие. Это специально — иначе монорепо доминировало бы и общая картина искажалась.</p>' +
         '<p>Сейчас: <strong>' + pct(mean) + '</strong> по ' + ruRepoPlural(perRepo.length) + '.</p>';
     }
   },
-  C: {
-    title: 'Метрика C — Confirmed shadow-группы',
-    formula: 'C = count(distinct shadowGroup where level === "confirmed")',
+  shadow: {
+    title: 'Shadow-групп',
+    formula: 'count(distinct группа shadow-компонентов)',
     body: function () {
       var confirmed = DATA.metrics.shadowLandscape.byComponent.filter(function (c) { return c.level === 'confirmed'; }).length;
       var total = DATA.metrics.shadowLandscape.byComponent.length;
-      return '<p>Каждая group — уникальная комбинация (имя + сигнатура пропсов + bucket markup-размера). Уровень <strong>confirmed</strong> означает: минимум один confirmed-сигнал из §5.1 + проверка против чистого primitive-name (PRD §3.5).</p>' +
-        '<p>Сейчас: <strong>' + confirmed + '</strong> confirmed из ' + total + ' всех групп.</p>' +
-        '<p>Низкий уровень = детекция шумит. Если confirmed &lt; 20% от total — стоит тюнить пороги (см. рекомендации).</p>';
+      return '<p>Каждая группа = уникальная комбинация имени компонента + сигнатуры пропсов + размера разметки. Уровень <code>confirmed</code> = сильный сигнал shadow (например, обёртка вокруг Beaver с кастомизацией). <code>likely</code> и <code>possible</code> — слабее, нуждаются в ручной проверке.</p>' +
+        '<p>Сейчас: <strong>' + total + '</strong> групп всего, из них <strong>' + confirmed + '</strong> сильных.</p>' +
+        '<p>Если <code>possible</code> сильно превышает <code>confirmed</code> — детекция шумит, стоит тюнить пороги (увидишь в рекомендациях).</p>';
     }
   },
-  D: {
-    title: 'Метрика D — Уникальных Beaver-пакетов',
-    formula: 'D = count(distinct package in beaverCoverage)',
+  packages: {
+    title: 'Beaver-пакетов в коде',
+    formula: 'count(distinct package)',
     body: function () {
       var cov = DATA.metrics.beaverCoverage;
       var top = cov.slice().sort(function (a, b) { return b.instances - a.instances; }).slice(0, 3);
-      return '<p>Сколько разных Beaver-пакетов (или их обёрток через агрегаторы) фактически импортируется хоть где-то. Косвенно показывает «ширину» использования Beaver.</p>' +
-        '<p>Сейчас: <strong>' + cov.length + '</strong>. Топ-3: ' +
+      return '<p>Сколько разных пакетов Beaver встречается в импортах хотя бы где-то. Косвенно показывает «ширину» использования.</p>' +
+        '<p>Сейчас: <strong>' + cov.length + '</strong>. Топ-3 по частоте: ' +
         top.map(function (p) { return '<code>' + escapeHtml(p.package) + '</code> (' + p.instances + ')'; }).join(', ') +
         '.</p>';
     }
@@ -1040,7 +957,7 @@ function renderDonut() {
   var dist = DATA.metrics.bucketDistribution || { adoption: 0, shadow: 0, neither: 0 };
   var total = dist.adoption + dist.shadow + dist.neither;
   if (total === 0) {
-    host.innerHTML = '<div class="donut-empty">Нет usage\\'ей для визуализации.</div>';
+    host.innerHTML = '<div class="donut-empty">Использований нет.</div>';
     return;
   }
   var R = 70, r = 48, cx = 90, cy = 90;
@@ -1111,7 +1028,7 @@ function renderPerRepo() {
     rows: DATA.metrics.perRepoAdoption,
     defaultSort: { key: 'value', dir: -1 },
     csvName: 'per-repo-adoption',
-    emptyText: 'Репо не сканировались.',
+    emptyText: 'Репозитории не сканировались.',
     columns: [
       { key: 'repoId', label: 'Репо', ellipsize: true },
       {
@@ -1127,7 +1044,7 @@ function renderPerRoute() {
     rows: DATA.metrics.perRouteAdoption,
     defaultSort: { key: 'value', dir: 1 },
     csvName: 'per-route-adoption',
-    emptyText: 'Нет привязанных маршрутов — в сканированных репо не нашлось React Router v6 конфигов, либо все usage\\'и в shared/unmapped файлах.',
+    emptyText: 'Маршруты не нашлись — либо в сканированных репо нет конфига React Router v6, либо все использования в shared/unmapped файлах.',
     columns: [
       { key: 'repoId', label: 'Репо', ellipsize: true },
       { key: 'routePath', label: 'Маршрут', ellipsize: true },
@@ -1151,7 +1068,7 @@ function renderShadowComponent() {
     rows: DATA.metrics.shadowLandscape.byComponent,
     defaultSort: { key: 'totalUsages', dir: -1 },
     csvName: 'shadow-by-component',
-    emptyText: 'Shadow-компоненты не найдены.',
+    emptyText: 'Shadow-компонентов не найдено.',
     columns: [
       { key: 'componentName', label: 'Компонент' },
       {
@@ -1163,7 +1080,7 @@ function renderShadowComponent() {
       },
       { key: 'reposCount', label: 'Репо', num: true,
         getSortValue: function (c) { return c.reposCount; } },
-      { key: 'totalUsages', label: "Всего usage'ей", num: true,
+      { key: 'totalUsages', label: 'Всего использований', num: true,
         getSortValue: function (c) { return c.totalUsages; } },
       {
         key: 'candidateBeaverPackage', label: 'Кандидат в Beaver',
@@ -1193,7 +1110,7 @@ function renderShadowFile() {
           return { confirmed: 3, likely: 2, possible: 1 }[f.level] || 0;
         }
       },
-      { key: 'usageCount', label: "Usage'ей", num: true,
+      { key: 'usageCount', label: 'Использований', num: true,
         getSortValue: function (f) { return f.usageCount; } }
     ]
   });
@@ -1224,7 +1141,7 @@ function renderSharedComponents() {
       { key: 'filePath', label: 'Файл', ellipsize: true },
       { key: 'componentName', label: 'Компонент' },
       {
-        key: 'bucket', label: 'Bucket',
+        key: 'bucket', label: 'Категория',
         render: function (s) { return bucketBadge(s.bucket); }
       },
       {
@@ -1236,38 +1153,44 @@ function renderSharedComponents() {
   });
 }
 
+// --- Проверки данных ---
 function renderInvariantsAndWarnings() {
   var inv = DATA.invariants;
-  var label = inv.failed === 0
-    ? inv.checked + " usage'ей проверено · все инварианты выполняются"
-    : inv.failed + ' нарушений среди ' + inv.checked + " usage'ей";
-  document.getElementById('invariants-summary').textContent = label;
   var warnings = DATA.warnings || [];
+  var summary = document.getElementById('invariants-summary');
   var violationsBlock = document.getElementById('violations-block');
-  var hasWarnings = warnings.length > 0 || inv.violations.length > 0;
   var toggle = document.getElementById('warnings-toggle');
   var body = document.getElementById('warnings-body');
 
-  if (!hasWarnings) {
-    violationsBlock.innerHTML = '';
+  var totalIssues = inv.violations.length + warnings.length;
+  if (totalIssues === 0) {
+    summary.textContent = 'Всё в порядке: ' + inv.checked + ' использований проверено, отклонений нет.';
+    summary.classList.add('ok');
     toggle.textContent = 'Чисто';
     toggle.disabled = true;
     return;
   }
+  if (inv.violations.length > 0) {
+    summary.innerHTML = 'Найдено отклонений в проверках: <strong>' + inv.violations.length +
+      '</strong>. Предупреждений: <strong>' + warnings.length + '</strong>. ' +
+      'Это значит: где-то в данных есть несоответствие между категоризацией и агрегатами — стоит посмотреть детали.';
+    summary.classList.add('bad');
+  } else {
+    summary.textContent = 'Проверки пройдены. Сканер выписал ' + warnings.length +
+      ' предупреждений (например, не сумел зарезолвить динамический импорт) — не ошибки, но стоит просмотреть.';
+  }
 
-  toggle.textContent = 'Показать (' + (warnings.length + inv.violations.length) + ')';
+  toggle.textContent = 'Показать (' + totalIssues + ')';
   toggle.addEventListener('click', function () {
     body.classList.toggle('hidden');
     var expanded = !body.classList.contains('hidden');
     toggle.setAttribute('aria-expanded', String(expanded));
-    toggle.textContent = expanded
-      ? 'Скрыть'
-      : 'Показать (' + (warnings.length + inv.violations.length) + ')';
+    toggle.textContent = expanded ? 'Скрыть' : 'Показать (' + totalIssues + ')';
   });
 
   var html = '';
   if (inv.violations.length > 0) {
-    html += '<p><strong>Нарушения инвариантов:</strong></p>';
+    html += '<p><strong>Отклонения в проверках:</strong></p>';
     html += inv.violations.map(function (v) {
       return '<div class="violation-row">' +
         escapeHtml(v.code) + ' × ' + v.count + ' — ' + escapeHtml(v.message) + '</div>';
@@ -1318,23 +1241,23 @@ function bindShadowTabs() {
 var GLOSSARY = {
   adoption: {
     title: 'Adoption',
-    body: 'Доля «решённых» usage\\'ей, идущих из Beaver, vs локальных shadow-компонентов. Формула: <code>adoption / (adoption + shadow)</code>. Usage\\'и из чужих либ (<code>neither</code>) не считаются.'
+    body: 'Использование, где компонент пришёл из Beaver (прямо или через канонизированный re-export) и не кастомизирован — без <code>className</code>, <code>style</code>, <code>sx</code>. Метрика adoption считает долю таких относительно суммы (adoption + shadow).'
   },
   shadow: {
     title: 'Shadow-компонент',
-    body: 'Локальный компонент, который дублирует функционал Beaver-примитива. Определяется набором сигналов (§5.1): primitive-like-name, substantial-markup, wraps-with-customization и т.д. Бывает трёх уровней: confirmed / likely / possible.'
+    body: 'Локальный или сторонний компонент, который выполняет роль Beaver-примитива: либо переписан с нуля (имя «Button», «Card» + развёрнутая разметка), либо обёртка вокруг Beaver с кастомизацией. Уровни: <strong>confirmed</strong>, <strong>likely</strong>, <strong>possible</strong> — по силе сигнала.'
   },
   bucket: {
-    title: 'Bucket',
-    body: 'Категория usage\\'а после классификации: <code>adoption</code> (из Beaver, не кастомизированный), <code>shadow</code> (локальная альтернатива), <code>neither</code> (чужая либа). Каждый usage попадает в ровно одну bucket (инвариант §10.1 #1).'
+    title: 'Категории использований',
+    body: 'Каждое JSX-использование попадает ровно в одну категорию: <strong class="bucket-text-adoption">adoption</strong> (из Beaver, без кастомизации), <strong class="bucket-text-shadow">shadow</strong> (локальная альтернатива), <strong class="bucket-text-neither">neither</strong> (бизнес-компонент или чужая либа).'
   },
   'shadow-level': {
     title: 'Уровни shadow',
-    body: '<strong>Confirmed</strong> — есть как минимум один сильный сигнал (§5.1.A). <strong>Likely</strong> — несколько слабых сигналов. <strong>Possible</strong> — только эвристика по имени или одиночный слабый сигнал. Тюнинг порогов см. в <code>thresholds.*</code> конфига.'
+    body: '<strong>confirmed</strong> — сильный сигнал (обёртка с кастомизацией, развёрнутая разметка с primitive-именем). <strong>likely</strong> — несколько слабых сигналов. <strong>possible</strong> — только намёк по имени. Доверять и мигрировать сначала confirmed.'
   },
   shared: {
-    title: 'Shared-компонент',
-    body: 'Файл, который достижим из import-графа двух+ page-компонентов. По PRD §7.5 такие usage\\'и НЕ идут в знаменатель метрики E, но трекаются отдельно — переписать один общий хедер дешевле, чем 30 страничных копий.'
+    title: 'Shared-компоненты',
+    body: 'Файлы, до которых дотягивается импорт-граф от нескольких страниц (хедеры, общие layout\\'ы). Их использования не идут в знаменатель «Adoption по маршрутам» — иначе одна правка хедера двигала бы все маршруты сразу. Но они важны стратегически: один shared = много страниц.'
   }
 };
 function initGlossary() {
@@ -1363,55 +1286,55 @@ function initGlossary() {
 var FAQ = [
   {
     q: 'Чем «adoption» отличается от «shadow»?',
-    a: 'Adoption — usage импортирует Beaver-компонент и НЕ кастомизирует его (нет <code>className</code>, <code>style</code>, runtime-обёртки). Shadow — локальный компонент с признаками того, что он переизобретает примитив (имя «Button/Card/Input», substantial markup, wraps Beaver с кастомизацией). Один usage не может быть в обеих категориях — это инвариант §10.1 #1.'
+    a: '<strong>Adoption</strong> — использование импортирует Beaver-компонент и НЕ кастомизирует его (нет <code>className</code>, <code>style</code>, <code>sx</code>). <strong>Shadow</strong> — локальный/чужой компонент с признаками того, что он выполняет роль примитива: имя «Button/Card», развёрнутая разметка, обёртка вокруг Beaver с кастомизацией. Одно использование не может быть и тем, и тем — это гарантия классификации.'
   },
   {
     q: 'Почему мой <code>&lt;Button className="..." /&gt;</code> попал в shadow?',
-    a: 'По PRD §3.6 любая кастомизация Beaver-импорта (className, style, sx) переводит usage в shadow — даже если сам импорт из Beaver. Это пуристский подход: если ты докрасил кнопку через className, ты создал локальную «не совсем-Beaver»-версию.'
+    a: 'Любая кастомизация Beaver-импорта (<code>className</code>, <code>style</code>, <code>sx</code>) переводит использование в shadow — даже если сам импорт из Beaver. Это пуристский подход: накинул свои стили — значит сделал локальную «не совсем-Beaver»-версию.'
   },
   {
     q: 'Какие уровни shadow и что они значат?',
-    a: '<strong>confirmed</strong> = сильный сигнал (substantial markup + primitive-name, или wraps-with-customization). <strong>likely</strong> = два-три слабых сигнала. <strong>possible</strong> = только эвристика по имени. Для рекомендаций по миграции смотри сначала confirmed.'
+    a: '<strong>confirmed</strong> — сильный сигнал (например, обёртка с кастомизацией + primitive-имя, или развёрнутая разметка с primitive-именем). <strong>likely</strong> — несколько слабых сигналов. <strong>possible</strong> — только эвристика по имени. Для миграционной стратегии смотри сначала confirmed.'
   },
   {
     q: 'Почему таблица «по маршрутам» пустая?',
-    a: 'Скорее всего в сканированных репо: (a) нет React Router v6 конфига, (b) есть Routes, но все usage-файлы достижимы из 2+ страниц (shared), (c) роуты заданы способом, не покрытым в M4 (Next.js App Router пока не поддерживается). Смотри warnings — там будет код <code>route-resolver-*</code>.'
+    a: 'Скорее всего в сканированных репо: (а) нет конфига React Router v6, (б) Routes есть, но все файлы-использования достижимы с 2+ страниц (тогда они в shared), (в) роуты заданы способом, который сканер ещё не поддерживает (Next.js App Router — на v2). Смотри секцию «Проверки данных» — там будут предупреждения с кодами вида <code>route-resolver-*</code>.'
   },
   {
     q: 'Adoption у меня 20%. Что делать первым?',
-    a: 'Открой карточку «Что советует сканер» (наверху). Топ-рекомендация обычно — конкретный shadow-компонент, повторяющийся в N репо. Добавить его в Beaver = убить N миграций одним PR. Дальше смотри топ Pareto chart shadow-компонентов.'
+    a: 'Открой карточку «Что советует сканер». Топ-рекомендация обычно — конкретный shadow-компонент, повторяющийся в N репозиториях. Добавить его в Beaver = убрать N миграций одним PR. Дальше смотри Pareto-чарт топ-10 shadow-компонентов: первые два-три занимают чаще всего 30–50% всех shadow-использований.'
   },
   {
-    q: 'Как сканер определил, что мой <code>@my-lib/button</code> — это «обёртка над Beaver»?',
-    a: 'Этап Prescan (Stage 5): сканер AST-парсит файлы локальной либы, видит её re-export из <code>@beaver-ui/core</code> и канонизирует через агрегатор. Подробности — в <code>docs/руководство.md</code> §«Канонизация импортов».'
+    q: 'Как сканер понял, что мой <code>@my-lib/button</code> — это «обёртка над Beaver»?',
+    a: 'На этапе «Свод с реестром» (Stage 5) сканер AST-парсит файлы локальной библиотеки, видит её re-export из, например, <code>@beaver-ui/core</code>, и канонизирует — все использования <code>@my-lib/button</code> начинают считаться как использования Beaver. Подробности см. в <code>docs/руководство.md</code>, раздел «Канонизация импортов».'
   },
   {
-    q: 'Что такое sharedLibraries и почему они не идут в метрику E?',
-    a: 'Если компонент используется на 2+ маршрутах, его usage\\'и формально нельзя «приписать» одному маршруту. PRD §7.5 решает это так: shared не считаются в знаменатель E, но трекаются в отдельной секции «Shared-компоненты». В стратегии миграции shared = «дорогая» цель: одна правка влияет на много маршрутов.'
+    q: 'Что такое sharedLibraries и почему они не идут в метрику маршрутов?',
+    a: 'Если компонент используется на 2+ маршрутах, его использования формально нельзя «приписать» одному маршруту — отсюда они в отдельной секции shared. В стратегии миграции shared = «дорогая» цель: одна правка влияет на много маршрутов, поэтому стоит решать осознанно.'
   },
   {
     q: 'Как формируются рекомендации?',
-    a: 'Алгоритм в <code>src/pipeline/recommendations.ts</code>. Четыре правила: (1) shadow-группа в ≥ N репо → add-to-beaver, (2) репо с adoption &lt; X% → outreach, (3) Beaver-пакет в &lt; Y% репо → promote, (4) possible &gt;&gt; confirmed → tune-thresholds. Пороги в конфиге, секция <code>recommendations</code>.'
+    a: 'Четыре правила: (1) shadow-группа в ≥ N репозиториях → «добавить в Beaver», (2) репо с adoption ниже порога → «outreach», (3) Beaver-пакет в <code>&lt; X%</code> репо → «промоушн пакета», (4) когда possible сильно превышает confirmed — «тюнинг порогов». Пороги настраиваются в секции <code>recommendations</code> конфига.'
   },
   {
     q: 'Разные запуски на одних данных дают разный отчёт — это баг?',
-    a: 'Да. Детерминизм — инвариант (§8.4). Повторный запуск на тех же commit\\'ах фикстур должен дать байт-идентичный <code>dataset.jsonl</code>. Если diff не пустой — заводи issue. Тест на это: <code>describe(\\'determinism\\')</code> в <code>tests/pipeline.test.ts</code>.'
+    a: 'Да. Детерминизм — гарантия сканера. Повторный запуск на тех же коммитах должен дать байт-идентичный <code>dataset.jsonl</code>. Если diff не пустой — заводи issue.'
   },
   {
-    q: 'У меня 50k+ shadow usage\\'ей — отчёт лагает.',
-    a: 'Открой Developer Tools → Network → проверь размер HTML. Если &gt; 50 МБ — конфиг <code>thresholds.maxShadowRows</code> можно понизить, либо запустить с <code>--no-html</code> и работать с JSONL через jq/duckdb. Таблицы пагинируются, но JS-парсинг 100k+ объектов всё равно долгий.'
+    q: 'У меня 50k+ shadow-использований — отчёт лагает.',
+    a: 'Открой Developer Tools → Network → посмотри размер HTML. Если > 50 МБ, можно: (а) понизить <code>thresholds.maxShadowRows</code> в конфиге, (б) запустить с <code>--no-html</code> и работать с <code>dataset.jsonl</code> через jq/duckdb. Таблицы тут уже пагинируются, но JS-парсинг 100k+ объектов всё равно небыстрый.'
   },
   {
-    q: 'JSX элемент вида <code>&lt;namespace.Component /&gt;</code> — он покрыт?',
-    a: 'Да, member-expression resolver (M2.4) умеет резолвить <code>UI.Button</code>, <code>icons.X</code>. Через несколько уровней обёрток (depth ≤ 5) и алиасов тоже. Если не покрыт — отдельный warning <code>jsx-member-unresolved</code>.'
+    q: 'JSX-элементы вида <code>&lt;namespace.Component /&gt;</code> поддерживаются?',
+    a: 'Да. Сканер умеет резолвить <code>UI.Button</code>, <code>icons.X</code> и более глубокие цепочки (до 5 уровней обёрток и алиасов). Если что-то не резолвится — в секции «Проверки данных» будет предупреждение с кодом <code>jsx-member-unresolved</code>.'
   },
   {
-    q: 'FP-rate какой?',
-    a: 'Целевой ≤ 15% (PRD §1.5). Считается на 50-компонентной ручной выборке после M7. До M7 — сканер ещё в режиме «строгий, может перестраховаться».'
+    q: 'Какой целевой false-positive rate?',
+    a: 'Цель — не выше 15% на 50-компонентной ручной выборке. Измеряется после большого dry-run на pilot-батче репо. До этого сканер работает в строгом режиме: лучше перестраховаться (классифицировать как shadow), чем пропустить.'
   },
   {
     q: 'Как выгрузить данные таблицы наружу?',
-    a: 'Кнопка «⬇ CSV» в каждой таблице. Экспортирует ТЕКУЩИЙ вид — с фильтром, сортировкой, но БЕЗ пагинации (все отфильтрованные строки). Полные данные — в <code>aggregates.json</code> рядом с отчётом.'
+    a: 'Кнопка «⬇ CSV» в каждой таблице. Экспортирует ТЕКУЩИЙ вид — с фильтром и сортировкой, но БЕЗ пагинации (все отфильтрованные строки сразу). Полный сырой датасет — рядом с отчётом в <code>aggregates.json</code> и <code>dataset.jsonl</code>.'
   }
 ];
 function renderFaq() {
@@ -1430,13 +1353,10 @@ function renderFaq() {
 }
 
 // --- Boot ---
-initPersona();
-initPermalink();
-initOnboarding();
 renderMeta();
+renderHero();
 renderNarrative();
 renderRecommendations();
-renderHero();
 renderDonut();
 renderPareto();
 renderPerRoute();
