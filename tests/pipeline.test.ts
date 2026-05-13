@@ -922,7 +922,7 @@ describe('pipeline end-to-end', () => {
       const html = renderReport(aggregates);
       expect(html).toContain('<!doctype html>');
       expect(html).toContain('BEAVER');
-      expect(html).toContain('Global Adoption');
+      expect(html).toContain('Общий adoption');
       expect(html).not.toContain('fetch(');
       expect(html).toContain('"value":0.75');
     });

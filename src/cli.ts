@@ -29,24 +29,27 @@ async function executeRun(opts: {
   if (opts.output) runOpts.outputDir = opts.output;
   const result = await runScan(runOpts);
   process.stdout.write(
-    `Scanned ${result.stats.reposScanned} repos · ${result.stats.filesScanned} files · ` +
-      `${result.stats.usages} usages (${result.stats.unresolved} unresolved) · ` +
-      `${result.stats.warnings} warnings · ${result.stats.durationMs}ms\n`,
+    `Сканировано: ${result.stats.reposScanned} репо · ${result.stats.filesScanned} файлов · ` +
+      `${result.stats.usages} usage'ей (${result.stats.unresolved} unresolved) · ` +
+      `${result.stats.warnings} предупреждений · ${result.stats.durationMs}мс\n`,
   );
-  process.stdout.write(`dataset:    ${result.datasetPath}\n`);
-  process.stdout.write(`aggregates: ${result.aggregatesPath}\n`);
-  if (result.reportPath) process.stdout.write(`report:     ${result.reportPath}\n`);
+  process.stdout.write(`датасет:    ${result.datasetPath}\n`);
+  process.stdout.write(`агрегаты:   ${result.aggregatesPath}\n`);
+  if (result.reportPath) process.stdout.write(`отчёт:      ${result.reportPath}\n`);
 
   if (opts.failOnInvariant) {
     const text = await readFile(result.aggregatesPath, 'utf-8');
     const agg = JSON.parse(text) as Aggregates;
     if (agg.invariants.failed > 0) {
       process.stderr.write(
-        `Invariant violations (${agg.invariants.failed}):\n`,
+        `Нарушения инвариантов (${agg.invariants.failed}):\n`,
       );
       for (const v of agg.invariants.violations) {
         process.stderr.write(`  ${v.code} × ${v.count} — ${v.message}\n`);
       }
+      process.stderr.write(
+        '\nЗапусти с --no-fail-on-invariant чтобы получить артефакты несмотря на нарушения.\n',
+      );
       process.exit(3);
     }
   }
@@ -112,7 +115,7 @@ program
         await mkdir(outAbs, { recursive: true });
         const outPath = resolve(outAbs, 'aggregates.json');
         await writeFile(outPath, JSON.stringify(aggregates, null, 2), 'utf-8');
-        process.stdout.write(`aggregates: ${outPath}\n`);
+        process.stdout.write(`агрегаты: ${outPath}\n`);
       } catch (err) {
         handleFatal(err);
       }
@@ -133,7 +136,7 @@ program
       const html = renderReport(aggregates);
       await mkdir(dirname(outPath), { recursive: true });
       await writeReport(outPath, html);
-      process.stdout.write(`report: ${outPath}\n`);
+      process.stdout.write(`отчёт: ${outPath}\n`);
     } catch (err) {
       handleFatal(err);
     }
@@ -149,7 +152,7 @@ program
       const cacheDir = resolve(configDir, '.cache');
       const stats = await stat(cacheDir).catch(() => null);
       if (!stats?.isDirectory()) {
-        process.stdout.write(`No cache at ${cacheDir}; nothing to update.\n`);
+        process.stdout.write(`Кэш не найден: ${cacheDir}. Нечего обновлять.\n`);
         return;
       }
       const entries: string[] = [];
@@ -167,9 +170,9 @@ program
       for (const dir of entries) {
         try {
           await gitPull(dir);
-          process.stdout.write(`pulled: ${dir}\n`);
+          process.stdout.write(`обновлён: ${dir}\n`);
         } catch (err) {
-          process.stderr.write(`failed: ${dir} — ${(err as Error).message}\n`);
+          process.stderr.write(`не удалось: ${dir} — ${(err as Error).message}\n`);
         }
       }
     } catch (err) {
@@ -187,11 +190,11 @@ program
       const cacheDir = resolve(configDir, '.cache');
       const stats = await stat(cacheDir).catch(() => null);
       if (!stats?.isDirectory()) {
-        process.stdout.write(`No cache at ${cacheDir}; nothing to clean.\n`);
+        process.stdout.write(`Кэш не найден: ${cacheDir}. Нечего удалять.\n`);
         return;
       }
       await rm(cacheDir, { recursive: true, force: true });
-      process.stdout.write(`removed: ${cacheDir}\n`);
+      process.stdout.write(`удалено: ${cacheDir}\n`);
     } catch (err) {
       handleFatal(err);
     }
@@ -217,13 +220,13 @@ function distinctCount<T, K>(items: T[], keyFn: (t: T) => K): number {
 
 function handleFatal(err: unknown): never {
   if (err instanceof ConfigError) {
-    process.stderr.write(`config error: ${err.message}\n`);
+    process.stderr.write(`Ошибка конфигурации: ${err.message}\n`);
     if (err.details) {
       process.stderr.write(JSON.stringify(err.details, null, 2) + '\n');
     }
     process.exit(2);
   }
-  process.stderr.write(`fatal: ${(err as Error).message}\n`);
+  process.stderr.write(`Фатальная ошибка: ${(err as Error).message}\n`);
   if ((err as Error).stack) process.stderr.write((err as Error).stack + '\n');
   process.exit(1);
 }
