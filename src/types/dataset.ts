@@ -143,6 +143,26 @@ export interface ShadowByComponent {
   candidateBeaverPackage: string | null;
 }
 
+/** Auto-generated recommendation surfaced in the report. */
+export interface Recommendation {
+  kind:
+    | 'add-to-beaver'
+    | 'outreach'
+    | 'promote-package'
+    | 'tune-thresholds';
+  priority: 'high' | 'medium' | 'low';
+  /** Short RU headline. */
+  title: string;
+  /** 1–2 предложения почему. */
+  rationale: string;
+  /** Pointers into the dataset that this recommendation references. */
+  evidence: {
+    shadowGroupKeys?: string[];
+    repoIds?: string[];
+    packages?: string[];
+  };
+}
+
 export interface Aggregates {
   schemaVersion: '1.1';
   meta: {
@@ -152,6 +172,13 @@ export interface Aggregates {
     beaverVersion: string;
     reposScanned: number;
     filesScanned: number;
+    /**
+     * Identifier of the previous scan this one is compared against.
+     * Currently always undefined — slot reserved for the delta layer
+     * (per PF4 plan, history persistence lands in a follow-up phase).
+     * BI consumers can ignore until populated.
+     */
+    previousScanRef?: string;
   };
   metrics: {
     globalAdoption: { value: number; formula: string };
@@ -179,7 +206,22 @@ export interface Aggregates {
       sharedAcrossRoutes: string[];
       bucket: Bucket;
     }>;
+    /**
+     * Snapshot of bucket distribution across ALL usage records (including
+     * neither, which is excluded from metrics A/B/E denominators).
+     * Surfaced for the viewer's "bucket donut" — see PF4 plan.
+     */
+    bucketDistribution: {
+      adoption: number;
+      shadow: number;
+      neither: number;
+    };
   };
+  /**
+   * Operator-facing actions auto-generated from metrics + config thresholds.
+   * Snapshot-only — deltas to previous scan come in the history phase.
+   */
+  recommendations: Recommendation[];
   invariants: InvariantReport;
   warnings: Warning[];
 }

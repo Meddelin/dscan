@@ -230,6 +230,7 @@ export async function runScan(opts: RunOptions): Promise<RunResult> {
     beaverVersion: beaverRegistry.version,
     reposScanned: repositories.length,
     filesScanned,
+    recommendationConfig: config.recommendations,
   });
 
   if (formats.has('aggregates')) {

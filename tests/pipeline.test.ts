@@ -915,7 +915,9 @@ describe('pipeline end-to-end', () => {
           beaverCoverage: [],
           perRouteAdoption: [],
           sharedComponentsAdoption: [],
+          bucketDistribution: { adoption: 3, shadow: 1, neither: 6 },
         },
+        recommendations: [],
         invariants: { checked: 10, failed: 0, violations: [] },
         warnings: [],
       };

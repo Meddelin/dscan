@@ -11,6 +11,10 @@ import type {
 } from '../types/dataset.js';
 import { SCHEMA_VERSION } from '../types/dataset.js';
 import { shadowGroupKey } from './classify-pass.js';
+import {
+  generateRecommendations,
+  type RecommendationConfig,
+} from './recommendations.js';
 
 export interface AggregateInput {
   records: DatasetRecord[];
@@ -21,6 +25,7 @@ export interface AggregateInput {
   beaverVersion: string;
   reposScanned: number;
   filesScanned: number;
+  recommendationConfig: RecommendationConfig;
 }
 
 /**
@@ -51,11 +56,31 @@ export function buildAggregates(input: AggregateInput): Aggregates {
 
   const perRouteAdoption = computePerRouteAdoption(usages);
   const sharedComponentsAdoption = computeSharedComponents(usages);
+  const bucketDistribution = computeBucketDistribution(usages);
 
   const invariants = checkInvariants(
     input.records,
     beaverCoverage,
     shadowLandscape.byFile,
+  );
+
+  const metrics: Aggregates['metrics'] = {
+    globalAdoption: {
+      value: globalAdoption,
+      formula: 'adoption / (adoption + shadow)',
+    },
+    perRepoAdoption,
+    shadowLandscape,
+    beaverCoverage,
+    perRouteAdoption,
+    sharedComponentsAdoption,
+    bucketDistribution,
+  };
+
+  const recommendations = generateRecommendations(
+    metrics,
+    { reposScanned: input.reposScanned },
+    input.recommendationConfig,
   );
 
   return {
@@ -68,20 +93,23 @@ export function buildAggregates(input: AggregateInput): Aggregates {
       reposScanned: input.reposScanned,
       filesScanned: input.filesScanned,
     },
-    metrics: {
-      globalAdoption: {
-        value: globalAdoption,
-        formula: 'adoption / (adoption + shadow)',
-      },
-      perRepoAdoption,
-      shadowLandscape,
-      beaverCoverage,
-      perRouteAdoption,
-      sharedComponentsAdoption,
-    },
+    metrics,
+    recommendations,
     invariants,
     warnings: input.warnings,
   };
+}
+
+function computeBucketDistribution(
+  usages: UsageRecord[],
+): { adoption: number; shadow: number; neither: number } {
+  const out = { adoption: 0, shadow: 0, neither: 0 };
+  for (const u of usages) {
+    if (u.bucket === 'adoption') out.adoption++;
+    else if (u.bucket === 'shadow') out.shadow++;
+    else out.neither++;
+  }
+  return out;
 }
 
 function computeAdoption(usages: UsageRecord[]): number {

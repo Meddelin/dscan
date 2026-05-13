@@ -111,6 +111,14 @@ program
           beaverVersion: 'unprescanned',
           reposScanned: distinctCount(records, (r) => r.repoId),
           filesScanned: distinctCount(records, (r) => `${r.repoId}::${r.filePath}`),
+          // Standalone aggregate command — use schema defaults since we
+          // don't have access to the global config from here.
+          recommendationConfig: {
+            addToBeaverMinRepos: 5,
+            outreachMaxAdoption: 0.3,
+            promotePackageMaxReposRatio: 0.1,
+            maxRecommendations: 12,
+          },
         });
         await mkdir(outAbs, { recursive: true });
         const outPath = resolve(outAbs, 'aggregates.json');

@@ -64,6 +64,33 @@ export const GlobalConfigSchema = z.object({
     })
     .optional(),
 
+  /**
+   * Auto-recommendation thresholds. The aggregator emits actionable items
+   * into aggregates.recommendations based on snapshot metrics; these knobs
+   * decide how aggressive the suggestions are. Defaults are conservative —
+   * tune up/down after the first pilot pass.
+   */
+  recommendations: z
+    .object({
+      /** Shadow group is suggested for Beaver if it shows up in ≥ N repos. */
+      addToBeaverMinRepos: z.number().int().positive().default(5),
+      /** Repos with adoption strictly below this trigger "outreach". */
+      outreachMaxAdoption: z.number().min(0).max(1).default(0.3),
+      /**
+       * Beaver packages used in fewer than this fraction of scanned repos
+       * trigger a "promote" recommendation. 0.10 = under 10% of repos.
+       */
+      promotePackageMaxReposRatio: z.number().min(0).max(1).default(0.1),
+      /** Hard cap on recommendations emitted (по priority desc). */
+      maxRecommendations: z.number().int().positive().default(12),
+    })
+    .default({
+      addToBeaverMinRepos: 5,
+      outreachMaxAdoption: 0.3,
+      promotePackageMaxReposRatio: 0.1,
+      maxRecommendations: 12,
+    }),
+
   primitiveNames: z.array(z.string()).optional(),
 
   /**
