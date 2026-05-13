@@ -497,6 +497,76 @@ describe('pipeline end-to-end', () => {
     });
   });
 
+  describe('invariant completeness across barrel aliasing (PF2.7)', () => {
+    // Real-world report came back with:
+    //   dataset-completeness-shadow × 1 — shadowLandscape byFile usage
+    //   total 7127 ≠ bucket=shadow usage count 7139.
+    // Four root causes ganged up: aliased-profile counter overwrite,
+    // default-import name mismatch, `export *` not aliased, and shadow
+    // record duplication when pendings hit different barrel paths. This
+    // fixture exercises all four together.
+    let aggregates: Aggregates;
+    let records: UsageRecord[];
+    let shadowRecordsTotal: number;
+
+    beforeAll(async () => {
+      process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;
+      const r = await runOnFixture('fixture-invariant-completeness');
+      aggregates = r.aggregates;
+      records = r.records;
+      const shadowsFromDataset = r.shadows;
+      shadowRecordsTotal = shadowsFromDataset.reduce(
+        (sum, s) => sum + s.usageCount,
+        0,
+      );
+    });
+
+    it('invariant #5 (dataset-completeness-shadow) holds', () => {
+      expect(aggregates.invariants.failed).toBe(0);
+    });
+
+    it('shadow byFile usage total equals dataset shadow count', () => {
+      const shadowUsages = records.filter((r) => r.bucket === 'shadow');
+      const byFileTotal = aggregates.metrics.shadowLandscape.byFile.reduce(
+        (sum, f) => sum + f.usageCount,
+        0,
+      );
+      expect(byFileTotal).toBe(shadowUsages.length);
+    });
+
+    it('all ShadowComponentRecord.usageCount in dataset.jsonl sum to shadow usages', () => {
+      const shadowUsages = records.filter((r) => r.bucket === 'shadow');
+      expect(shadowRecordsTotal).toBe(shadowUsages.length);
+    });
+
+    it('default-imported component classifies as shadow (definingSymbol="default")', () => {
+      const card = records.find((r) => r.componentName === 'DefaultCard');
+      expect(card?.bucket).toBe('shadow');
+    });
+
+    it('export-star chain reaches LegacyCard through two-hop barrel', () => {
+      const cards = records.filter((r) => r.componentName === 'LegacyCard');
+      expect(cards.length).toBe(2);
+      for (const c of cards) expect(c.bucket).toBe('shadow');
+    });
+
+    it('LegacyButton imported via barrel and direct path produces one shadow record', () => {
+      const buttons = records.filter(
+        (r) => r.componentName === 'LegacyButton' || r.componentName === 'DirectButton',
+      );
+      // 2 via barrel + 1 direct = 3 usages
+      expect(buttons.length).toBe(3);
+      // But exactly one ShadowComponentRecord for that one file/symbol
+      const legacyButtonShadows = aggregates.metrics.shadowLandscape.byFile.filter(
+        (f) =>
+          f.componentName === 'LegacyButton' &&
+          f.filePath.replace(/\\/g, '/').endsWith('/kit/LegacyButton.tsx'),
+      );
+      expect(legacyButtonShadows.length).toBe(1);
+      expect(legacyButtonShadows[0]!.usageCount).toBe(3);
+    });
+  });
+
   describe('mocks / fixtures excluded by default (PF2.1)', () => {
     it('does not scan __mocks__/ or *.mock.* by default', async () => {
       process.env.BEAVER_LOCAL_PATH = FAKE_BEAVER;

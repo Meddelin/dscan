@@ -23,10 +23,11 @@
 | PF2.4 path-const evaluation (local + cross-file, depth=5) | (PF2 series) | ✅ |
 | PF2.5 deep wrapper nesting (depth=5, mixed wrapper+member-expr) | (PF2 series) | ✅ |
 | PF2.6 barrel chain to defining file (depth=3) | (PF2 series) | ✅ |
+| PF2.7 invariant-completeness fix (counters + dedup + default + `export *`) | (PF2 series) | ✅ |
 | M6b worker pool | — | deferred |
 | M7 real dry-run + FP SLA | — | blocked on SSH access |
 
-102/102 vitest specs green across 6 test files. Smoke run on 20 fixtures
+108/108 vitest specs green across 6 test files. Smoke run on 21 fixtures
 produces zero invariant violations.
 
 ## PF2 — Pilot Fixes Round 2 (2026-05-12)
@@ -84,12 +85,53 @@ came back. All shipped as small commits in sequence.
    and `<X.Settings/>` now bind to their own pages, not both to
    `index.ts`.
 
-Six new fixtures: `fixture-mocks-excluded`,
+7. **PF2.7 — Invariant-completeness fix.** Real-world dry-run reported
+   `dataset-completeness-shadow × 1 — shadowLandscape byFile usage total
+   7127 ≠ bucket=shadow usage count 7139` (delta 12 on a 100-repo scan).
+   Four bugs ganged up:
+
+   - **Aliased-profile counter overwrite.** `aliasBarrelProfiles` from
+     M6a registers one `ComponentProfile` under multiple Map keys
+     (barrel + direct file). The cross-file aggregation loop in
+     `run.ts` did `profile.usageCount = stats.count` for each key —
+     second write to the same object silently overwrote the first.
+     Fix: accumulate into a `Map<ComponentProfile, totals>` keyed by
+     object identity, then apply once per profile.
+   - **`shadowByKey` duplication.** `classify-pass.ts` keyed the
+     ShadowComponentRecord map by the pending's `(definingAbsPath,
+     definingSymbol)`. Two pendings hitting the same profile through
+     different barrel paths created two records, each carrying
+     `profile.usageCount` — doubling the apparent shadow count.
+     Fix: when a profile is found, key shadowByKey by
+     `(profile.absPath, profile.componentName)` instead.
+   - **Default-import name mismatch.** `buildPending` used
+     `binding.importedName ?? binding.localName` for `definingSymbol`.
+     For `import Foo from './foo'`, `importedName` is null and
+     `localName` is 'Foo' — but the source profile lives under
+     'default'. Fix: explicit `binding.importedName === null
+     ? 'default' : binding.importedName`.
+   - **`export *` aliases not registered.** `aliasBarrelProfiles`
+     only walked named export-from specifiers. Star re-exports
+     through a barrel (`export * from './widgets'`) left consumers'
+     `import { Foo } from './kit'` unable to find Foo's profile.
+     Fix: fixpoint loop (depth 5) that on each pass rebuilds the
+     `profilesByFile` index from the live Map (including previously-
+     added aliases), then iterates `ExportAllDeclaration` to fan out
+     every named export of the source onto the barrel's path. Handles
+     chained barrels naturally (barrel1 → barrel2 → source).
+
+   Regression fixture `fixture-invariant-completeness/`: mixes barrel +
+   direct paths, two-hop `export *` chain, and renamed default import.
+   Five pipeline specs assert invariant #5 holds, byFile totals match
+   dataset shadow count, and shadow-record dedup is 1-per-profile.
+
+Seven new fixtures: `fixture-mocks-excluded`,
 `fixture-uses-shared-lib` + `shared-kits/team-platform`,
 `fixture-route-member-expression`,
 `fixture-route-path-constants`,
 `fixture-route-deep-wrapper`,
-`fixture-route-shared-lib-page`. 16 new pipeline specs (102 total).
+`fixture-route-shared-lib-page`,
+`fixture-invariant-completeness`. 22 new pipeline specs (108 total).
 
 ## Pilot-fixes (2026-04-25, commit `0e0a4b3`)
 

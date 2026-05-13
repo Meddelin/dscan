@@ -23,7 +23,7 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 | 8. Aggregate | метрики A/B/C/D/E + 7 из 9 инвариантов |
 | HTML Viewer | hero → **E (per-route)** → B → C → D |
 
-102/102 vitest specs · 22 фикстуры · smoke run: 20 repos / 58 files / 105 usages / 0 warnings.
+108/108 vitest specs · 23 фикстуры · smoke run: 21 repos / 64 files / 129 usages / 0 warnings / 0 invariant violations.
 
 ## Установка
 

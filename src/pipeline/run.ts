@@ -346,11 +346,33 @@ async function classifyRepo(input: ClassifyRepoInput) {
       });
     }
   }
+  // Aliasing (`aliasBarrelProfiles` + `export *` fixpoint below) registers
+  // ONE ComponentProfile under multiple keys (`kit/index.ts::Foo` AND
+  // `kit/Foo.tsx::Foo`). If pendings hit different keys but the same
+  // profile object, a naive `profile.usageCount = stats.count` overwrites
+  // the previous write — losing usages and breaking invariant #5
+  // (dataset-completeness-shadow). Accumulate by object identity:
+  const perProfile = new Map<
+    ComponentProfile,
+    { files: Set<string>; count: number }
+  >();
   for (const [key, stats] of counters) {
     const profile = profiles.get(key);
     if (!profile) continue;
-    profile.usageCount = stats.count;
-    profile.filesUsedIn = stats.files.size;
+    const cur = perProfile.get(profile);
+    if (cur) {
+      cur.count += stats.count;
+      for (const f of stats.files) cur.files.add(f);
+    } else {
+      perProfile.set(profile, {
+        count: stats.count,
+        files: new Set(stats.files),
+      });
+    }
+  }
+  for (const [profile, totals] of perProfile) {
+    profile.usageCount = totals.count;
+    profile.filesUsedIn = totals.files.size;
   }
 
   const signalContext: SignalContext = {
@@ -376,38 +398,104 @@ async function classifyRepo(input: ClassifyRepoInput) {
   };
 }
 
+const BARREL_ALIAS_FIXPOINT_LIMIT = 5;
+
+/**
+ * Register profiles under the barrel paths that re-export them. Required so
+ * `import { Foo } from './kit'` (resolved to `kit/index.ts`) finds the same
+ * profile that `import { Foo } from './kit/Foo'` would.
+ *
+ * Handles three forms:
+ *   - `export { Foo } from './foo'`          — explicit named
+ *   - `export { default as Foo } from './foo'` — default-renamed
+ *   - `export * from './foo'`                  — every named export of foo
+ *
+ * Chained barrels (barrel1 → barrel2 → source) need a fixed-point pass
+ * because a single sweep only sees aliases that already exist at iteration
+ * time. We loop until no new aliases land or we hit the depth cap.
+ */
 function aliasBarrelProfiles(
   parsed: ParsedFile[],
   resolver: TsResolver,
   profiles: Map<string, ComponentProfile>,
 ): void {
-  for (const file of parsed) {
-    for (const node of file.ast.body) {
-      if (node.type !== 'ExportNamedDeclaration' || !node.source) continue;
-      const resolved = resolver.resolve(node.source.value, file.file.absPath);
-      if (resolved.kind !== 'in-repo') continue;
-      for (const spec of node.specifiers) {
-        if (spec.type !== 'ExportSpecifier') continue;
-        const localSymbol =
-          spec.local.type === 'Identifier' ? spec.local.name : null;
-        const exportedSymbol =
-          spec.exported.type === 'Identifier' ? spec.exported.name : null;
-        if (!localSymbol || !exportedSymbol) continue;
-        const sourceKey = profileKey({
-          absPath: resolved.absPath,
-          componentName: localSymbol,
-        });
-        const profile = profiles.get(sourceKey);
-        if (!profile) continue;
-        const aliasKey = profileKey({
-          absPath: file.file.absPath,
-          componentName: exportedSymbol,
-        });
-        if (!profiles.has(aliasKey)) {
-          profiles.set(aliasKey, profile);
+  for (let pass = 0; pass < BARREL_ALIAS_FIXPOINT_LIMIT; pass++) {
+    // Build absPath → (componentName → profile) per pass. We index by the
+    // MAP KEY's absPath segment (not `profile.absPath`), so previously-added
+    // aliases show up under the barrel file they were registered at. That's
+    // what makes chained barrels work: kit/index.ts uses `export *` from
+    // kit/widgets/index.ts; on pass N+1 we need kit/widgets/index.ts to
+    // *appear* as a profile source even though no profile was originally
+    // defined there.
+    const profilesByFile = new Map<string, Map<string, ComponentProfile>>();
+    for (const [key, profile] of profiles) {
+      const splitIdx = key.lastIndexOf('::');
+      if (splitIdx === -1) continue;
+      const absLow = key.slice(0, splitIdx);
+      const name = key.slice(splitIdx + 2);
+      const list = profilesByFile.get(absLow) ?? new Map();
+      list.set(name, profile);
+      profilesByFile.set(absLow, list);
+    }
+
+    let added = 0;
+
+    for (const file of parsed) {
+      for (const node of file.ast.body) {
+        if (node.type === 'ExportNamedDeclaration' && node.source) {
+          const resolved = resolver.resolve(node.source.value, file.file.absPath);
+          if (resolved.kind !== 'in-repo') continue;
+          for (const spec of node.specifiers) {
+            if (spec.type !== 'ExportSpecifier') continue;
+            const localSymbol =
+              spec.local.type === 'Identifier' ? spec.local.name : null;
+            const exportedSymbol =
+              spec.exported.type === 'Identifier' ? spec.exported.name : null;
+            if (!localSymbol || !exportedSymbol) continue;
+            const sourceKey = profileKey({
+              absPath: resolved.absPath,
+              componentName: localSymbol,
+            });
+            const profile = profiles.get(sourceKey);
+            if (!profile) continue;
+            const aliasKey = profileKey({
+              absPath: file.file.absPath,
+              componentName: exportedSymbol,
+            });
+            if (!profiles.has(aliasKey)) {
+              profiles.set(aliasKey, profile);
+              added++;
+            }
+          }
+        } else if (
+          node.type === 'ExportAllDeclaration' &&
+          typeof node.source.value === 'string' &&
+          // `export * as NS from './foo'` is namespace re-export, not a
+          // fan-out — we don't expand it. Only bare `export * from`.
+          node.exported === null
+        ) {
+          const resolved = resolver.resolve(node.source.value, file.file.absPath);
+          if (resolved.kind !== 'in-repo') continue;
+          const targetKey = resolved.absPath.replace(/\\/g, '/').toLowerCase();
+          const targetProfiles = profilesByFile.get(targetKey);
+          if (!targetProfiles) continue;
+          for (const [name, profile] of targetProfiles) {
+            // `export *` doesn't propagate default exports.
+            if (name === 'default') continue;
+            const aliasKey = profileKey({
+              absPath: file.file.absPath,
+              componentName: name,
+            });
+            if (!profiles.has(aliasKey)) {
+              profiles.set(aliasKey, profile);
+              added++;
+            }
+          }
         }
       }
     }
+
+    if (added === 0) break;
   }
 }
 

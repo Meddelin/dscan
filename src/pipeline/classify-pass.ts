@@ -93,12 +93,28 @@ export function classifyPass(input: ClassifyPassInput): ClassifyPassOutput {
     usages.push(record);
 
     if (result.bucket === 'shadow') {
-      const existing = shadowByKey.get(key);
+      // Dedup ShadowComponentRecord by the PROFILE's own (absPath,
+      // componentName) — not by the pending key. Pendings reaching the
+      // same component through different paths (barrel index, direct
+      // file, `export *` chain) all map to one record. Without this,
+      // each pending key would create its own record carrying
+      // `profile.usageCount`, double-counting on the byFile side and
+      // breaking invariant #5.
+      // Synthetic profiles (external fully-custom libs without source)
+      // keep using the pending key since each pending IS a separate
+      // implementation we have no shared profile for.
+      const dedupKey = profile
+        ? profileKey({
+            absPath: profile.absPath,
+            componentName: profile.componentName,
+          })
+        : key;
+      const existing = shadowByKey.get(dedupKey);
       if (!existing) {
         const p = profile ?? synthetic;
         if (p) {
           shadowByKey.set(
-            key,
+            dedupKey,
             buildShadowRecord(p, result.shadowLevel ?? 'possible', result.signals),
           );
         }

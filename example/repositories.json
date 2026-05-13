@@ -98,5 +98,10 @@
     "name": "fixture-route-shared-lib-page",
     "gitUrl": "ssh://git@localhost/fixture-route-shared-lib-page.git",
     "localPath": "../tests/fixtures/fixture-route-shared-lib-page"
+  },
+  {
+    "name": "fixture-invariant-completeness",
+    "gitUrl": "ssh://git@localhost/fixture-invariant-completeness.git",
+    "localPath": "../tests/fixtures/fixture-invariant-completeness"
   }
 ]

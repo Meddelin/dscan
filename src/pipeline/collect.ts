@@ -290,8 +290,22 @@ function buildPending(
 ): PendingUsage {
   const definingAbsPath =
     resolved.kind === 'in-repo' ? resolved.absPath : ctx.parsed.file.absPath;
-  const definingSymbol =
-    lib.symbolOverride ?? binding.importedName ?? binding.localName;
+  // The defining-side symbol is what the SOURCE file calls it, not the
+  // consumer's local alias. ImportSpecifier carries `importedName`;
+  // ImportDefaultSpecifier has `importedName = null`, and the source's
+  // matching profile is keyed under the literal string 'default'
+  // (see findExportedComponents in profile.ts). Using `binding.localName`
+  // here (as the previous fallback did) silently broke every
+  // `import Foo from './foo'` lookup because the source profile is
+  // 'default', not 'Foo'.
+  let definingSymbol: string;
+  if (lib.symbolOverride) {
+    definingSymbol = lib.symbolOverride;
+  } else if (binding.importedName === null) {
+    definingSymbol = 'default';
+  } else {
+    definingSymbol = binding.importedName;
+  }
   return {
     importerAbsPath: ctx.parsed.file.absPath,
     definingAbsPath,
