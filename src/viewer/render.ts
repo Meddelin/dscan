@@ -202,6 +202,20 @@ const Button = styled.button\`...\`            // свой → shadow</code></pr
     <div class="table-host" data-table="coverage"></div>
   </section>
 
+  <section class="panel" id="panel-components">
+    <h2>Beaver-компоненты: что фактически используется</h2>
+    <p class="muted">
+      Разбивка по конкретным компонентам внутри Beaver — не «какой пакет
+      импортируют», а «какой <code>&lt;Button&gt;</code> ставят в JSX». Колонка
+      <strong>adoption</strong> — использования без кастомизации,
+      <strong>shadow</strong> — это импортированный из Beaver компонент, но
+      с накинутыми <code>className</code> / <code>style</code> / <code>sx</code>.
+      Высокий shadow на популярном компоненте — сигнал «вариантов Beaver не
+      хватает, команды дорисовывают сами».
+    </p>
+    <div class="table-host" data-table="components"></div>
+  </section>
+
   <section class="panel" id="panel-shared">
     <h2>Shared-компоненты <span class="info-pill" data-glossary="shared">?</span></h2>
     <p class="muted">
@@ -1218,6 +1232,41 @@ function renderCoverage() {
     ]
   });
 }
+function renderBeaverComponentUsage() {
+  createTable(document.querySelector('[data-table="components"]'), {
+    rows: DATA.metrics.beaverComponentUsage || [],
+    defaultSort: { key: 'instances', dir: -1 },
+    csvName: 'beaver-components',
+    emptyText: 'Beaver-компоненты в коде не найдены.',
+    columns: [
+      { key: 'componentName', label: 'Компонент' },
+      { key: 'package', label: 'Пакет', ellipsize: true },
+      { key: 'reposUsing', label: 'Репо', num: true,
+        getSortValue: function (c) { return c.reposUsing; } },
+      { key: 'instances', label: 'Всего', num: true,
+        getSortValue: function (c) { return c.instances; } },
+      {
+        key: 'adoptionInstances', label: 'adoption', num: true,
+        getSortValue: function (c) { return c.adoptionInstances; },
+        render: function (c) {
+          var share = c.instances > 0 ? (c.adoptionInstances / c.instances * 100).toFixed(0) : '0';
+          return '<span class="bucket-text-adoption">' + c.adoptionInstances + '</span>' +
+            ' <span class="muted">(' + share + '%)</span>';
+        }
+      },
+      {
+        key: 'shadowInstances', label: 'shadow', num: true,
+        getSortValue: function (c) { return c.shadowInstances; },
+        render: function (c) {
+          if (c.shadowInstances === 0) return '<span class="muted">0</span>';
+          var share = c.instances > 0 ? (c.shadowInstances / c.instances * 100).toFixed(0) : '0';
+          return '<span class="bucket-text-shadow">' + c.shadowInstances + '</span>' +
+            ' <span class="muted">(' + share + '%)</span>';
+        }
+      }
+    ]
+  });
+}
 function renderSharedComponents() {
   createTable(document.querySelector('[data-table="shared"]'), {
     rows: DATA.metrics.sharedComponentsAdoption,
@@ -1448,6 +1497,7 @@ renderPerRepo();
 renderShadowComponent();
 renderShadowFile();
 renderCoverage();
+renderBeaverComponentUsage();
 renderSharedComponents();
 renderInvariantsAndWarnings();
 renderFaq();

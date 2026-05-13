@@ -28,6 +28,7 @@ function emptyMetrics(): Aggregates['metrics'] {
     perRepoAdoption: [],
     shadowLandscape: { byFile: [], byComponent: [] },
     beaverCoverage: [],
+    beaverComponentUsage: [],
     perRouteAdoption: [],
     sharedComponentsAdoption: [],
     bucketDistribution: { adoption: 0, shadow: 0, neither: 0 },

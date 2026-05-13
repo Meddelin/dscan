@@ -913,6 +913,7 @@ describe('pipeline end-to-end', () => {
           perRepoAdoption: [{ repoId: 'repo-a', value: 0.75 }],
           shadowLandscape: { byFile: [], byComponent: [] },
           beaverCoverage: [],
+          beaverComponentUsage: [],
           perRouteAdoption: [],
           sharedComponentsAdoption: [],
           bucketDistribution: { adoption: 3, shadow: 1, neither: 6 },

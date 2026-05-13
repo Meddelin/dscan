@@ -192,6 +192,21 @@ export interface Aggregates {
       reposUsing: number;
       instances: number;
     }>;
+    /**
+     * Per-component breakdown inside the Beaver category. Same data the
+     * `beaverCoverage` aggregation has, but sliced by `(componentName, package)`
+     * — answers «какие компоненты из Beaver реально используют, и сколько из
+     * них кастомизированы». `adoptionInstances + shadowInstances` ≤ `instances`
+     * (a tiny tail can land in `neither` for edge classification cases).
+     */
+    beaverComponentUsage: Array<{
+      componentName: string;
+      package: string;
+      reposUsing: number;
+      instances: number;
+      adoptionInstances: number;
+      shadowInstances: number;
+    }>;
     perRouteAdoption: Array<{
       repoId: string;
       routePath: string;
