@@ -32,3 +32,39 @@ file (`router.tsx` / `routes.ts`), not at the offending page-component.
 1. Add the string literal to `WARNING_CODES` in `src/config/schema.ts`.
 2. Emit it somewhere in `src/pipeline/` with a clear `message`.
 3. Document it in this file.
+
+## Where invariants live (separate from warnings)
+
+PRD §10.1 domain invariants are NOT entries in `warnings.json`. They live
+in `aggregates.json` under `invariants.violations[]`:
+
+```json
+{
+  "invariants": {
+    "checked": 12345,
+    "failed": 0,
+    "violations": [
+      { "code": "dataset-completeness-shadow", "count": 1, "message": "…" }
+    ]
+  }
+}
+```
+
+A non-empty `violations[]` causes the CLI to exit with code `3` unless
+`--no-fail-on-invariant` was passed. Currently implemented (7 of 9):
+
+| Invariant code | Meaning |
+|----------------|---------|
+| `shadow-level-consistency` | `bucket=shadow` ⇔ `shadowLevel` set (§10.1 #3). |
+| `beaver-package-canonicalization` | `category=beaver` requires `beaverPackage` (§10.1 #4). |
+| `route-presence` | Every usage carries a `route` (§10.1 #7). |
+| `schema-version-fixed` | All records share one `schemaVersion` (§10.1 #6). |
+| `bucket-mutual-exclusivity` | One valid bucket per usage (§10.1 #1). |
+| `classification-source-enum` | `classificationSource` is a known code (§10.1 #2). |
+| `dataset-completeness-beaver` | `beaverCoverage.instances` total equals `category=beaver` usage count (§10.1 #5). |
+| `dataset-completeness-shadow` | `shadowLandscape.byFile` usage total equals `bucket=shadow` usage count (§10.1 #5). Most failure-prone — driven by barrel aliasing, default-import naming, and `export *` propagation (all addressed in PF2.7 / commit `bd0c517`). |
+
+Deferred (not yet implemented): per-route denominator correctness (#8;
+covered by construction in `computePerRouteAdoption`) and determinism
+hash (#9; runtime check optional, validated by the determinism vitest
+spec instead).

@@ -23,7 +23,7 @@ CLI-тулза для измерения adoption design system Beaver по T-Ba
 | 8. Aggregate | метрики A/B/C/D/E + 7 из 9 инвариантов |
 | HTML Viewer | hero → **E (per-route)** → B → C → D |
 
-108/108 vitest specs · 23 фикстуры · smoke run: 21 repos / 64 files / 129 usages / 0 warnings / 0 invariant violations.
+108/108 vitest specs · 22 consumer фикстуры (+ fake Beaver-монорепо + shared-kits helper) · smoke run: 21 repos / 64 files / 129 usages / 0 warnings / 0 invariant violations.
 
 ## Установка
 
@@ -32,7 +32,7 @@ git clone git@github.com:Meddelin/dscan.git
 cd dscan
 npm install
 npm run typecheck    # sanity check
-npm test             # 86 specs
+npm test             # 108 specs
 ```
 
 ## Локальный прогон на встроенных фикстурах
@@ -170,7 +170,7 @@ export default defineConfig({
 - `src/writer/` — JSONL streaming writer + sortRecords для детерминизма
 - `src/viewer/` — self-contained HTML-рендерер
 - `scripts/clone-repos.mjs` — batch clone helper по `repositories.json`
-- `tests/fixtures/` — 16 синтетических репо, покрывающих PRD §10.2
+- `tests/fixtures/` — 22 consumer-фикстуры, покрывающие PRD §10.2 + PF2-кейсы (mocks-excluded, shared libs, member-expr routes, path constants, deep wrappers, barrel chains, invariant completeness) + два helper'а: `beaver-ui/` (fake Beaver монорепо) и `shared-kits/` (для PF2.2)
 
 ## Документация
 

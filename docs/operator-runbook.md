@@ -3,8 +3,10 @@
 Audience: Stanislav (initial operator), later on-call engineer responsible for
 the weekly/bi-weekly run.
 
-This document assumes M1–M6a + pilot-fixes have landed. Worker pool (M6b) and
-production cron runner (Phase 2) are out of scope.
+This document assumes M1–M6a + pilot-fixes + the PF2 series (member
+expressions in routes, path-const evaluation, shared libraries, barrel
+chain resolution, invariant-completeness fixes) have landed. Worker pool
+(M6b) and production cron runner (Phase 2) are out of scope.
 
 ## Prerequisites
 
@@ -231,13 +233,19 @@ to M6b worker pool — see [implementation/plan.md](../implementation/plan.md).
 |---------|-------------|-----|
 | Exit code 2 | Invalid config (Zod failure) | stderr includes the offending field path. |
 | Exit code 3 | Invariant violation | Re-run with `--no-fail-on-invariant` and inspect `aggregates.invariants.violations[]`. |
+| `dataset-completeness-shadow` violation (delta > 0) | (Pre-PF2.7 bug) Barrel-aliased profile counter overwrite OR default-import name mismatch OR `export *` not propagated. Fixed in `bd0c517`. | Pull latest. If still nonzero, send the `warnings.json` + violation message — likely a fifth re-export pattern not yet covered. |
 | `git clone failed` for a consumer | SSH / network / missing repo | stderr is raw git. No retry — fix the underlying issue and re-run. SSH? `ssh-add ~/.ssh/id_ed25519`. |
 | `Invalid per-repo config` | Malformed `.beaver-scan.json` OR inline override | stderr shows Zod-style path to the field. Missing config is fine — defaults apply. |
-| `parse-failed` warning storm on `.ts` files | (Pre-pilot bug) Parser was given `jsx: true` for non-JSX `.ts`. Fixed in commit `0e0a4b3`. | Pull latest; jsx is now decided per file extension. |
+| `parse-failed` warning storm on `.ts` files | (Pre-pilot bug) Parser was given `jsx: true` for non-JSX `.ts`. Fixed in `0e0a4b3`. | Pull latest; `jsx` is now decided per file extension. |
 | `unresolved-dynamic-rate-exceeded` warning | Repo uses `React.createElement` / lookup-by-string patterns | Not fatal — artefacts are still produced. Open `warnings.json` for the specific records. Heavy users may need `unresolvedDynamicWarningPct` raised. |
-| `route-resolution-warning` with `page-import-not-in-repo` | Route `element` references a symbol that resolves outside the repo. | Each warning includes the route-config `filePath`. Common fix: ensure the page component is imported as a relative/aliased path, not as a re-export from an external package. |
-| Wrapped route element doesn't bind a page | Element is `<Guard><Page/></Guard>` — older builds skipped the inner JSX. Fixed in commit `0e0a4b3`. | Pull latest; resolver now walks JSX descendants and prefers the first in-repo match. |
-| `<Form.Item/>` shows up as `unresolved-dynamic` | (Pre-pilot bug) Member expressions on Beaver imports were rejected. Fixed in `0e0a4b3`. | Pull latest; §5.5 member resolution canonicalises to the base Beaver package. |
+| `route-resolution-warning` with `page-import-not-in-repo` | Route `element` references a symbol that resolves outside the repo. | Each warning includes the route-config `filePath` + `absPath`. Common fix: ensure the page component is imported as a relative/aliased path, not as a re-export from an external package. |
+| `route-resolution-warning` with `dynamic-path-skipped` | Path uses an unsupported form: template literal with substitutions, computed access (`PATHS[k]`), or function call. PF2.4 supports identifier / member-access / cross-file imports. | Convert to a static const lookup (`path: ROUTER_PATHS.foo`) where possible. Template literals with no substitutions also work. |
+| `route-resolution-warning` with `jsx-member-unresolved` | `<NS.X/>` where `NS`'s import doesn't resolve in-repo, OR `X` isn't reachable through the resolved file. PF2.6 chains barrels to depth 3 — beyond that we stop. | Check that `NS` is a relative/aliased import (not an external package) and that the source file actually owns `X`. |
+| Wrapped route element doesn't bind a page | Element is `<Guard><Page/></Guard>` — pre-`0e0a4b3` builds skipped the inner JSX. | Pull latest; resolver walks the JSX tree (depth 5) and prefers the first in-repo candidate, including member-expression children (PF2.3 + PF2.5). |
+| `<Form.Item/>` shows up as `unresolved-dynamic` | (Pre-pilot bug) Member expressions on Beaver imports were rejected. Fixed in `0e0a4b3` + PF2.3. | Pull latest; §5.5 member resolution canonicalises to the base Beaver package. |
+| Shared design kit not picked up across repos | Operator didn't declare it. | Add a `sharedLibraries` entry in the global config (PF2.2). `source.path` is relative to where the config file lives. |
+| `local-lib-prescan-failed` warning | The `source.path` directory is missing or unreadable. | Check the path in `localLibraries[].source.path` (or `sharedLibraries[].source.path`). Components from that lib fall back to per-repo config `kind`. |
+| Many distinct routes via same barrel collapse to `shared` | (Pre-PF2.6 bug) Page resolved at the barrel, not at the leaf file. Fixed in `e730db2`. | Pull latest; barrel chain walks down to defining files (depth 3). |
 | Cached clone ahead of remote | Commit timeline drift | `npx ds-scanner update --config ds-scanner.config.ts` does `git pull --ff-only` across the cache. |
 | Cache grew too large | Weekly-run default | `npx ds-scanner clean --config ds-scanner.config.ts` nukes `.cache/`. Next run re-clones from scratch. |
 
