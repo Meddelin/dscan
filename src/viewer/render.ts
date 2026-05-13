@@ -94,6 +94,52 @@ export function renderReport(aggregates: Aggregates): string {
     <div id="recs-list"></div>
   </section>
 
+  <section class="panel categories" id="panel-categories">
+    <h2>Что значит adoption, shadow и neither</h2>
+    <p class="muted">
+      Это три категории, в которые сканер раскладывает каждое JSX-использование
+      компонента. Все метрики выше — это пересчёты по этим категориям; если
+      непонятно, что показывают числа в шапке, начинать читать стоит отсюда.
+    </p>
+
+    <div class="cat-grid">
+      <div class="cat-card cat-adoption">
+        <div class="cat-title"><span class="cat-dot"></span>adoption</div>
+        <p class="cat-summary"><strong>Используешь Beaver как есть.</strong> Компонент пришёл из Beaver-пакета (или из локальной либы, которая внутри re-export'ит Beaver — это считается тем же) и не кастомизирован — без своих стилей сверху.</p>
+        <pre class="cat-example"><code>import { Button } from '@beaver-ui/core';
+&lt;Button onClick={handler}&gt;Привет&lt;/Button&gt;</code></pre>
+        <p class="cat-note">Цель — чтобы доля adoption росла.</p>
+      </div>
+
+      <div class="cat-card cat-shadow">
+        <div class="cat-title"><span class="cat-dot"></span>shadow</div>
+        <p class="cat-summary"><strong>Локальное переизобретение Beaver-примитива.</strong> Бывает в трёх формах:</p>
+        <ol class="cat-forms">
+          <li><strong>Переписан с нуля</strong> — локальный компонент с именем «Button», «Card», «Input» и развёрнутой разметкой внутри.</li>
+          <li><strong>Обёртка с кастомизацией</strong> — импортируешь Beaver, накидываешь свои стили через <code>className</code>, <code>style</code> или <code>sx</code>. Сам импорт из Beaver, но фактически появляется «не-совсем-Beaver» версия.</li>
+          <li><strong>Standalone styled</strong> — компонент через <code>styled-components</code> или <code>emotion</code> в роли примитива.</li>
+        </ol>
+        <pre class="cat-example"><code>&lt;Button className="my-red"&gt;...&lt;/Button&gt;  // обёртка → shadow
+const Button = styled.button\`...\`            // свой → shadow</code></pre>
+        <p class="cat-note">Цель — мигрировать на Beaver или добавить shadow в Beaver, если он повторяется.</p>
+      </div>
+
+      <div class="cat-card cat-neither">
+        <div class="cat-title"><span class="cat-dot"></span>neither</div>
+        <p class="cat-summary"><strong>Всё остальное.</strong> Бизнес-компоненты (<code>UserCard</code>, <code>DealForm</code>), чужие либы без признаков UI-примитива. В метрику adoption не идут — это «не наша зона ответственности».</p>
+        <pre class="cat-example"><code>&lt;UserCard user={u} /&gt;       // бизнес-логика
+&lt;DataGrid data={rows} /&gt;    // чужая либа</code></pre>
+        <p class="cat-note">Не двигаем — просто учитываем, что они есть.</p>
+      </div>
+    </div>
+
+    <div class="formula-block">
+      <strong>Формула общего adoption:</strong>
+      <code>adoption / (adoption + shadow)</code>
+      <span class="formula-note">— neither в знаменатель не идёт</span>
+    </div>
+  </section>
+
   <section class="panel viz-panel" id="panel-viz">
     <div class="panel-head">
       <h2>Распределение использований <span class="info-pill" data-glossary="bucket">?</span></h2>
@@ -331,6 +377,48 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg);
 .ev-chip code { background: transparent; border: 0; padding: 0; color: var(--fg); }
 .ev-pct { color: var(--fg-dim); font-size: 10px; }
 .rec-empty { color: var(--fg-dim); font-size: 13px; padding: 8px 0; }
+
+.cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+  margin: 16px 0 20px; }
+@media (max-width: 900px) { .cat-grid { grid-template-columns: 1fr; } }
+.cat-card { background: var(--bg); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 16px 18px; border-left: 3px solid var(--panel-border);
+  display: flex; flex-direction: column; }
+.cat-card.cat-adoption { border-left-color: var(--good); }
+.cat-card.cat-shadow { border-left-color: var(--bad); }
+.cat-card.cat-neither { border-left-color: var(--fg-dim); }
+.cat-title { font-family: var(--mono); font-weight: 600; font-size: 14px;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  letter-spacing: 0.02em; }
+.cat-adoption .cat-title { color: var(--good); }
+.cat-shadow .cat-title { color: var(--bad); }
+.cat-neither .cat-title { color: var(--fg-dim); }
+.cat-dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor;
+  box-shadow: 0 0 8px currentColor; opacity: 0.85; }
+.cat-summary { color: var(--fg-dim); font-size: 13px; line-height: 1.55;
+  margin: 0 0 10px; }
+.cat-summary strong { color: var(--fg); }
+.cat-forms { color: var(--fg-dim); font-size: 12px; line-height: 1.55;
+  margin: 8px 0 10px; padding-left: 18px; }
+.cat-forms li { margin-bottom: 6px; }
+.cat-forms strong { color: var(--fg); font-weight: 600; }
+.cat-example { background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 4px; padding: 10px 12px; margin: 8px 0;
+  font-family: var(--mono); font-size: 11px; line-height: 1.6;
+  color: var(--fg); white-space: pre-wrap; word-break: break-word;
+  overflow-x: auto; }
+.cat-example code { background: transparent; border: 0; padding: 0;
+  font-size: 11px; color: inherit; }
+.cat-note { color: var(--fg-dim); font-size: 11px; font-style: italic;
+  margin: auto 0 0; padding-top: 10px; border-top: 1px dashed var(--panel-border); }
+
+.formula-block { background: var(--bg); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 12px 16px; font-size: 13px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.formula-block strong { color: var(--fg); }
+.formula-block code { background: var(--panel); color: var(--accent);
+  font-size: 13px; padding: 4px 10px; border: 1px solid var(--panel-border); }
+.formula-note { color: var(--fg-dim); font-size: 12px; }
 
 .viz-grid { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
 @media (max-width: 720px) { .viz-grid { grid-template-columns: 1fr; } }
@@ -1284,10 +1372,6 @@ function initGlossary() {
 
 // --- FAQ ---
 var FAQ = [
-  {
-    q: 'Чем «adoption» отличается от «shadow»?',
-    a: '<strong>Adoption</strong> — использование импортирует Beaver-компонент и НЕ кастомизирует его (нет <code>className</code>, <code>style</code>, <code>sx</code>). <strong>Shadow</strong> — локальный/чужой компонент с признаками того, что он выполняет роль примитива: имя «Button/Card», развёрнутая разметка, обёртка вокруг Beaver с кастомизацией. Одно использование не может быть и тем, и тем — это гарантия классификации.'
-  },
   {
     q: 'Почему мой <code>&lt;Button className="..." /&gt;</code> попал в shadow?',
     a: 'Любая кастомизация Beaver-импорта (<code>className</code>, <code>style</code>, <code>sx</code>) переводит использование в shadow — даже если сам импорт из Beaver. Это пуристский подход: накинул свои стили — значит сделал локальную «не совсем-Beaver»-версию.'
